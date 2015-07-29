@@ -5,7 +5,7 @@ extern void start();
 extern void svc_handler();
 
 void (* const RESET_VECTOR[])()  = {
-	(void (*)())0x20010000,     /* initial MSP */
+	(void (*)())STACK_BTM,      /* initial MSP */
 	start,                      /* reset vector */
 	NULL,                       /* NMI vector */
 	NULL,                       /* hard fault vector */
