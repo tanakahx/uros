@@ -8,6 +8,7 @@
 #define UART0_ADDR 0x4000C000
 #define NVIC_ADDR  0xE000E000
 #define NVIC_CCR   (*(volatile unsigned int *)0xE000ED14)
+#define ICSR       (*(volatile unsigned int *)0xE000ED04)
 
 #define SYST_CSR (*(volatile unsigned int *)0xE000E010)
 #define SYST_RVR (*(volatile unsigned int *)0xE000E014)

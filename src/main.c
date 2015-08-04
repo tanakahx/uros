@@ -33,6 +33,7 @@ enum {
 	REG_SP,
 };
 
+void schedule();
 int sys_switch(void *args);
 int sys_debug(void *args);
 int sys_task_new(void *args);
@@ -61,9 +62,48 @@ void print_reg()
 	}
 }
 
-void svc_systick()
+__attribute__ ((naked))
+void pendsv_handler()
 {
-	puts("systick!");
+	/* save context (R4-R11, LR, SP) */
+	asm("stmia %0!, {r4-r11};" /* R4-R11 */
+		"str   lr, [%0], #4;"  /* LR */
+		"tst   lr, #4;"
+		"ite   eq;"
+		"mrseq r0, msp;"
+		"mrsne r0, psp;"
+		"str   r0, [%0];"      /* SP */
+		"bl    schedule;"
+		: 
+		: "r" (taskp->reg)
+		: "cc", "r0");
+
+	if (taskp->state == STATE_SUSPEND) {
+		/*
+		 * setup a new stack frame
+		 * copy only necessary values from parent's stack frame,
+		 * but replace it's return address to taskp->entry.
+		 */
+		uint32_t *sp;
+		asm("mrs %0, msp;" : "=r" (sp));
+		taskp->reg[REG_SP] -= 8;
+		*((uint32_t *)taskp->reg[REG_SP] + 5) = (uint32_t)*(sp + 5);    /* LR */
+		*((uint32_t *)taskp->reg[REG_SP] + 6) = (uint32_t)taskp->entry; /* Return address */
+		*((uint32_t *)taskp->reg[REG_SP] + 7) = (uint32_t)*(sp + 7);    /* xPSR */
+		taskp->state = STATE_RUNNING;
+	}
+	asm("ldmia %0!, {r4-r11};"
+		"ldr lr, [%0], #4;"  /* LR */
+		"ldr r0, [%0], #4;"  /* SP */
+		"msr msp, r0;"
+		"bx lr;"
+		:
+		: "r" (taskp->reg) : "r0", "lr");
+}
+
+void systick_handler()
+{
+	ICSR |= (1<<28);
 }
 
 __attribute__ ((naked))
@@ -260,10 +300,12 @@ int main()
 	task_init();
 	i = sys_task_new((unsigned int *)args); /* setup initial task */
 	taskp = &task[i];
-	s_switch();
 
-	printf("system exit\n");
-	for (;;) ;
+	/* enable systick interrupt */
+	SYST_RVR = 0x00200000;
+	SYST_CSR = 0x00000007;
+	
+	s_switch(); /* does not return here */
 
 	return 0;
 }

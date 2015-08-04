@@ -3,7 +3,8 @@
 
 extern void start();
 extern void svc_handler();
-extern void svc_systick();
+extern void systick_handler();
+extern void pendsv_handler();
 
 void (* const RESET_VECTOR[])()  = {
 	(void (*)())STACK_BTM,      /* initial MSP */
@@ -20,6 +21,6 @@ void (* const RESET_VECTOR[])()  = {
 	svc_handler,                /* SVC vector */
 	NULL,                       /* debug monitor vector */
 	NULL,                       /* reserved */
-	NULL,                       /* PendSV vector */
-	svc_systick,                /* SysTick vector */
+	pendsv_handler,             /* PendSV vector */
+	systick_handler,            /* SysTick vector */
 };
