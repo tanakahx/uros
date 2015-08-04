@@ -12,6 +12,7 @@
 
 #define SYST_CSR (*(volatile unsigned int *)0xE000E010)
 #define SYST_RVR (*(volatile unsigned int *)0xE000E014)
+#define SYST_CALIB (*(volatile unsigned int *)0xE000E01C)
 #define SYST_CSR_TICKINT 0x2
 
 #endif
