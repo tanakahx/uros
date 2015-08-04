@@ -69,6 +69,8 @@ void svc_systick()
 __attribute__ ((naked))
 void svc_handler()
 {
+	SYST_CSR &= ~SYST_CSR_TICKINT;
+	
 	/* save context (R4-R11, LR, SP) */
 	asm("stmia %0!, {r4-r11};" /* R4-R11 */
 		"str   lr, [%0], #4;"  /* LR */
@@ -100,6 +102,8 @@ void svc_handler()
 		taskp->state = STATE_RUNNING;
 	}
 		
+	SYST_CSR |= SYST_CSR_TICKINT;
+
 	asm("ldmia %0!, {r4-r11};"
 		"ldr lr, [%0], #4;"  /* LR */
 		"ldr r0, [%0], #4;"  /* SP */
@@ -111,20 +115,22 @@ void svc_handler()
 
 void schedule()
 {
-	task_t *p;
+	task_t *p = taskp + 1;
 	task_t *n = NULL;
 	int pri = PRI_MAX + 1;
 
-	for (p = task; p < task + NR_TASK; p++) {
+	do {
 		if (p->state != STATE_FREE && p->pri < pri) {
 			pri = p->pri;
 			n = p;
 		}
-	}
+		if (++p == task + NR_TASK - 1)
+			p = task;
+	} while (p != taskp + 1);
 		
 	if (n == NULL)
 		return; /* ERROR: no task is available */
-		
+
 	taskp = n;
 }
 
@@ -215,29 +221,33 @@ void task_init()
 
 /* =================================================== */
 
-void low_priority_task()
+void sub_task1()
 {
-	printf("[low_priority_task]: start\n");
-	s_debug("hello from low_priority task");
-	printf("[low_priority_task]: done\n");
-	s_task_exit(0);
+	volatile int i = 0;
+	while (1) {
+		if (i++ == 0x2000000) {
+			puts("[sub_task1]");
+			i = 0;
+		}
+	}
 }
 
-void high_priority_task()
+void sub_task2()
 {
-	printf("[high_priority_task]: start\n");
-	s_debug("making low priority task");
-	s_task_new(low_priority_task, 8, 256);
-	printf("[high_priority_task]: done\n");
-	s_task_exit(0);
+	volatile int i = 0;
+	while (1) {
+		if (i++ == 0x2000000) {
+			puts("[sub_task2]");
+			i = 0;
+		}
+	}
 }
 
 void main_task()
 {
 	printf("[main_task]: start\n");
-	s_debug("making high priority task");
-	printf("[main_task]: s_task_new()\n");
-	s_task_new(high_priority_task, 1, 256);
+	s_task_new(sub_task1, PRI_MAX, 256);
+	s_task_new(sub_task2, PRI_MAX, 256);
 	printf("[main_task]: done\n");
 	s_task_exit(0);
 }
@@ -245,7 +255,7 @@ void main_task()
 int main()
 {
 	int i;
-	void *args[] = {main_task, (void *)PRI_MAX, (void *)256}; /* initial task's arguments */
+	void *args[] = {main_task, (void *)1, (void *)256}; /* initial task's arguments */
 		
 	task_init();
 	i = sys_task_new((unsigned int *)args); /* setup initial task */
