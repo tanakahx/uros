@@ -61,6 +61,11 @@ void print_reg()
 	}
 }
 
+void svc_systick()
+{
+	puts("systick!");
+}
+
 __attribute__ ((naked))
 void svc_handler()
 {

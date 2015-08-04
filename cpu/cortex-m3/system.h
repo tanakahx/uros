@@ -9,4 +9,7 @@
 #define NVIC_ADDR  0xE000E000
 #define NVIC_CCR   (*(volatile unsigned int *)0xE000ED14)
 
+#define SYST_CSR (*(volatile unsigned int *)0xE000E010)
+#define SYST_RVR (*(volatile unsigned int *)0xE000E014)
+
 #endif

@@ -18,6 +18,9 @@ void start()
 	/* Copy .data section into SRAM area */
 	memcpy((void *)SRAM_ADDR, (void *)&rodata_end, (void *)&data_end - (void *)&data_start);
 	
+	SYST_RVR = 0x00200000;
+	SYST_CSR = 0x00000007;
+	
 	main();
 	
 	/* loop forever */
