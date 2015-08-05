@@ -81,6 +81,11 @@ void print_reg()
     }
 }
 
+void default_handler()
+{
+    puts("[default_handler] Unhandled exception occured!");
+}
+
 __attribute__ ((naked))
 void pendsv_handler()
 {
