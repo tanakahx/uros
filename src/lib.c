@@ -73,7 +73,12 @@ void *mem_alloc(size_t size)
 void mem_free(void *addr)
 {
     cell_t *p;
-    cell_t *t = (cell_t *)addr - 1;
+    cell_t *t;
+
+    if (addr == NULL)
+        return;
+
+    t = (cell_t *)addr - 1;
 
     /*
      * The freeing cell pointed by t is inserted before a cell pointed by p.

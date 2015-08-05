@@ -251,7 +251,11 @@ void task_init()
     for (i = 0; i < NR_TASK; i++) 
         task[i].state = STATE_FREE;
 
-    /* set up default task */
+    /* 
+     * Set up default task.
+     * Since default task does not require any stack frame, 
+     * we don't care about reg[REG_SP].
+     */
     task[0].id = 0;
     task[0].state = STATE_RUNNING;
     task[0].pri = PRI_MAX;
