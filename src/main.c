@@ -10,13 +10,14 @@
 #define STATE_RUNNING 8
 #define NR_REG 10
 #define PRI_MAX 255
-#define SVC(n) asm volatile ("svc %[i]" :: [i] "I" (n))
+#define TICK_TH 10
+#define PEND_SV ICSR |= (1<<28)
 
 typedef struct {
 	int id;
 	int state;
 	int pri;
-	void (*entry)();
+	uint32_t tick;
 	uint32_t reg[NR_REG]; /* R4-R11, LR, SP */
 } task_t;
 
@@ -37,23 +38,26 @@ void schedule();
 int sys_switch(void *args);
 int sys_debug(void *args);
 int sys_task_new(void *args);
+int sys_task_start(void *args);
 int sys_task_exit(void *args);
 
 int (* const syscall_table[])(void *args) = {
 	sys_switch,
 	sys_debug,
 	sys_task_new,
+	sys_task_start,
 	sys_task_exit,
 };
 
 task_t task[NR_TASK];
-int task_count = 0;
 task_t *taskp  = NULL;
 
 void print_reg()
 {
 	int i;
-	char *reg_name[] = {"R04", "R05", "R06", "R07", "R08", "R09", "R10", "R11", "LR ", "SP "};
+	char *reg_name[] = {"R04", "R05", "R06", "R07",
+						"R08", "R09", "R10", "R11",
+						"LR ", "SP "};
 
 	for (i = 0; i < NR_REG; i++) {
 		printf("%s:", reg_name[i]);
@@ -65,7 +69,6 @@ void print_reg()
 __attribute__ ((naked))
 void pendsv_handler()
 {
-	void main_task();
 	/* save context (R4-R11, LR, SP) */
 	asm("stmia %0!, {r4-r11};" /* R4-R11 */
 		"str   lr, [%0], #4;"  /* LR */
@@ -79,21 +82,9 @@ void pendsv_handler()
 		: "r" (taskp->reg)
 		: "cc", "r0");
 	
-	print_reg();
-	printf("%x %x\n", taskp->reg[REG_SP]+sizeof(uint32_t)*0, *((uint32_t*)taskp->reg[REG_SP]+0));
-	printf("%x %x\n", taskp->reg[REG_SP]+sizeof(uint32_t)*1, *((uint32_t*)taskp->reg[REG_SP]+1));
-	printf("%x %x\n", taskp->reg[REG_SP]+sizeof(uint32_t)*2, *((uint32_t*)taskp->reg[REG_SP]+2));
-	printf("%x %x\n", taskp->reg[REG_SP]+sizeof(uint32_t)*3, *((uint32_t*)taskp->reg[REG_SP]+3));
-	printf("%x %x\n", taskp->reg[REG_SP]+sizeof(uint32_t)*4, *((uint32_t*)taskp->reg[REG_SP]+4));
-	printf("%x %x\n", taskp->reg[REG_SP]+sizeof(uint32_t)*5, *((uint32_t*)taskp->reg[REG_SP]+5));
-	printf("%x %x\n", taskp->reg[REG_SP]+sizeof(uint32_t)*6, *((uint32_t*)taskp->reg[REG_SP]+6));
-	printf("%x %x\n", taskp->reg[REG_SP]+sizeof(uint32_t)*7, *((uint32_t*)taskp->reg[REG_SP]+7));
-	
-	printf("%x\n", main_task);
-	
 	asm("ldmia %0!, {r4-r11};"
-		"ldr lr, [%0], #4;"  /* LR */
-		"ldr r0, [%0], #4;"  /* SP */
+		"ldr lr, [%0], #4;"    /* LR */
+		"ldr r0, [%0], #4;"    /* SP */
 		"msr msp, r0;"
 		"bx lr;"
 		:
@@ -102,42 +93,13 @@ void pendsv_handler()
 
 void systick_handler()
 {
-	ICSR |= (1<<28);
+	if (++taskp->tick > TICK_TH) {
+		taskp->state = STATE_READY;
+		taskp->tick = 0;
+	}
+	PEND_SV;
 }
 
-#if 0
-__attribute__ ((naked))
-void svc_handler()
-{
-	SYST_CSR &= ~SYST_CSR_TICKINT;
-	
-	/* save context (R4-R11, LR, SP) */
-	asm("stmia %0!, {r4-r11};" /* R4-R11 */
-		"str   lr, [%0], #4;"  /* LR */
-		"tst   lr, #4;"
-		"ite   eq;"
-		"mrseq r0, msp;"
-		"mrsne r0, psp;"
-		"str   r0, [%0];"      /* SP */
-		"ldr   r1, [r0, #4*6];"
-		"sub   r1, r1, #2;"
-		"ldrb  r1, [r1];"
-		"bl svc_dispatch;"
-		: 
-		: "r" (taskp->reg)
-		: "cc", "r0", "r1");
-		
-	SYST_CSR |= SYST_CSR_TICKINT;
-
-	asm("ldmia %0!, {r4-r11};"
-		"ldr lr, [%0], #4;"  /* LR */
-		"ldr r0, [%0], #4;"  /* SP */
-		"msr msp, r0;"
-		"bx lr;"
-		:
-		: "r" (taskp->reg) : "r0", "lr");
-}
-#else
 __attribute__ ((naked))
 void svc_handler()
 {
@@ -150,12 +112,11 @@ void svc_handler()
 		"ldrb  r1, [r1];"
 		"bl svc_dispatch;");
 
-	ICSR |= (1<<28);
+	PEND_SV;
 	
 	asm("mov lr, #0xFFFFFFF9;"
 		"bx lr;");
 }
-#endif
 
 void schedule()
 {
@@ -163,8 +124,15 @@ void schedule()
 	task_t *n = NULL;
 	int pri = PRI_MAX + 1;
 
+	/* If the current running task does not expired its tick, task switching 
+	   does not occur and the current running task goes on to its process. */
+	if (taskp->state == STATE_RUNNING)
+		return;
+
+	/* Select the next running task from ready state tasks.
+	   Scheduling algorithm is priority based round robin. */
 	do {
-		if (p->state != STATE_FREE && p->pri < pri) {
+		if (p->state == STATE_READY && p->pri < pri) {
 			pri = p->pri;
 			n = p;
 		}
@@ -176,16 +144,16 @@ void schedule()
 		return; /* ERROR: no task is available */
 
 	taskp = n;
+	taskp->state = STATE_RUNNING;
 }
 
 void svc_dispatch(void *args, int svc_number)
 {
+	int eid;
 	printf("*** SVC call(%d) ***\n", svc_number);
 
-	syscall_table[svc_number](args);
-	/* TODO: write return value of system call to a stack frame */
-		
-	schedule();
+	eid = syscall_table[svc_number](args);
+	*(int *)args = eid;
 }
 
 int sys_switch(void *args)
@@ -227,10 +195,9 @@ int sys_task_new(void *args)
 	sp = (uint32_t *)mem_alloc(sizeof(uint32_t)*argp[2]);
 	if (sp == NULL)
 		return -1; /* ERROR: stack allocation error */
-	
 	sp += argp[2] - 8;
 	memset(sp, 0, sizeof(uint32_t) * 8);
-	*(sp + 7) = 0x1000000;         /* xPSR */
+	*(sp + 7) = 0x01000000;        /* xPSR */
 	*(sp + 6) = argp[0]; /* Return address */
 		
 	/* clear all register */
@@ -239,11 +206,20 @@ int sys_task_new(void *args)
 	tp->reg[REG_SP] = (uint32_t)sp;
 	tp->reg[REG_LR] = 0xFFFFFFF9;
 	
-	tp->id    = task_count++;
-	tp->state = STATE_READY;
+	tp->id    = tp - task;
+	tp->state = STATE_SUSPEND;
 	tp->pri   = argp[1];
+	tp->tick  = 0;
 	
-	return tp - task;
+	return tp->id;
+}
+
+int sys_task_start(void *args)
+{
+	int *argp = args;
+	int id = argp[0];
+	task[id].state = STATE_READY;
+	return 0;
 }
 
 int sys_task_exit(void *args)
@@ -253,18 +229,33 @@ int sys_task_exit(void *args)
 	return 0;
 }
 
-#define SYS_CALL_STUB(svc, name, ...) void name(__VA_ARGS__) { SVC(svc); }
+#define SYS_CALL_STUB(svc, name, ...) int name(__VA_ARGS__) { \
+		int ret;											  \
+		asm volatile ("svc %1;"								  \
+					  "mov %0, r0;"							  \
+					  : "=r" (ret)							  \
+					  : "I" (svc)							  \
+					  : "r0", "r1", "r2", "r3");			  \
+		return ret;											  \
+	}
 
 SYS_CALL_STUB(0, s_switch, void);
 SYS_CALL_STUB(1, s_debug, char *dummy);
 SYS_CALL_STUB(2, s_task_new, void (*dummy)(), int pri, int stack_size);
-SYS_CALL_STUB(3, s_task_exit, int dummy);
+SYS_CALL_STUB(3, s_task_start, int dummy);
+SYS_CALL_STUB(4, s_task_exit, int dummy);
 
 void task_init()
 {
 	int i;
 	for (i = 0; i < NR_TASK; i++) 
 		task[i].state = STATE_FREE;
+
+	/* set up default task */
+	task[0].id = 0;
+	task[0].state = STATE_RUNNING;
+	task[0].pri = PRI_MAX;
+	taskp = &task[0];
 }
 
 /* =================================================== */
@@ -293,27 +284,31 @@ void sub_task2()
 
 void main_task()
 {
+	int id[2];
+	
 	/* enable systick interrupt */
 	SYST_RVR = SYST_CALIB * 100;
 	SYST_CSR = 0x00000007;
 	
 	printf("[main_task]: start\n");
-	s_task_new(sub_task1, PRI_MAX, 256);
-	s_task_new(sub_task2, PRI_MAX, 256);
+	id[0] = s_task_new(sub_task1, 2, 256);
+	id[1] = s_task_new(sub_task2, 2, 256);
+	s_task_start(id[0]);
+	s_task_start(id[1]);
 	printf("[main_task]: done\n");
 	s_task_exit(0);
 }
 
 int main()
 {
-	int i;
 	void *args[] = {main_task, (void *)1, (void *)256}; /* initial task's arguments */
-		
-	task_init();
-	i = sys_task_new((unsigned int *)args); /* setup initial task */
-	taskp = &task[i];
+	int id;
 
-	s_switch(); /* does not return here */
+	task_init();
+	id = sys_task_new(args); /* setup initial task */
+	*(int *)args = id;
+	sys_task_start(args);
+	s_task_exit(0); /* does not return here */
 
 	return 0;
 }
