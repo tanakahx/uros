@@ -8,17 +8,18 @@
 #define STATE_SUSPEND 2
 #define STATE_READY   4
 #define STATE_RUNNING 8
-#define NR_REG 10
+#define NR_REG 9
 #define PRI_MAX 255
 #define TICK_TH 10
 #define PEND_SV ICSR |= (1<<28)
 
+/* Task Control Block (TCB) */
 typedef struct {
     int id;
     int state;
     int pri;
     uint32_t tick;
-    uint32_t reg[NR_REG]; /* R4-R11, LR, SP */
+    uint32_t reg[NR_REG]; /* R4-R11, SP */
 } task_t;
 
 enum {
@@ -30,11 +31,9 @@ enum {
     REG_R9,
     REG_R10,
     REG_R11,
-    REG_LR,
     REG_SP,
 };
 
-void schedule();
 int sys_switch(void *args);
 int sys_debug(void *args);
 int sys_task_new(void *args);
@@ -49,6 +48,22 @@ int (* const syscall_table[])(void *args) = {
     sys_task_exit,
 };
 
+#define SYS_CALL_STUB(svc, name, ...) int name(__VA_ARGS__) {   \
+        int ret;                                                \
+        asm volatile ("svc %1;"                                 \
+                      "mov %0, r0;"                             \
+                      : "=r" (ret)                              \
+                      : "I" (svc)                               \
+                      : "r0", "r1", "r2", "r3");                \
+        return ret;                                             \
+    }
+
+SYS_CALL_STUB(0, s_switch, void);
+SYS_CALL_STUB(1, s_debug, char *dummy);
+SYS_CALL_STUB(2, s_task_new, void (*dummy)(), int pri, int stack_size);
+SYS_CALL_STUB(3, s_task_start, int dummy);
+SYS_CALL_STUB(4, s_task_exit, int dummy);
+
 task_t task[NR_TASK];
 task_t *taskp  = NULL;
 
@@ -57,7 +72,7 @@ void print_reg()
     int i;
     char *reg_name[] = {"R04", "R05", "R06", "R07",
                         "R08", "R09", "R10", "R11",
-                        "LR ", "SP "};
+                        "SP "};
 
     for (i = 0; i < NR_REG; i++) {
         printf("%s:", reg_name[i]);
@@ -69,23 +84,21 @@ void print_reg()
 __attribute__ ((naked))
 void pendsv_handler()
 {
-    /* save context (R4-R11, LR, SP) */
-    asm("stmia %0!, {r4-r11};" /* R4-R11 */
-        "str   lr, [%0], #4;"  /* LR */
-        "tst   lr, #4;"
-        "ite   eq;"
-        "mrseq r0, msp;"
-        "mrsne r0, psp;"
-        "str   r0, [%0];"      /* SP */
+    /* Save context to its TCB (R4-R11, SP) */
+    asm("stmia %0!, {r4-r11};" /* Store R4-R11 */
+        "mrs r0, psp;"
+        "str r0, [%0];"        /* Store SP */
         "bl    schedule;"
         : 
         : "r" (taskp->reg)
-        : "cc", "r0");
+        : "r0");
+
+    /* taskp may be changed after executing schedule(). */
     
     asm("ldmia %0!, {r4-r11};"
-        "ldr lr, [%0], #4;"    /* LR */
-        "ldr r0, [%0], #4;"    /* SP */
-        "msr msp, r0;"
+        "mov lr, #0xFFFFFFFD;" /* unprivileged handler mode */
+        "ldr r0, [%0];"        /* Load SP */
+        "msr psp, r0;"
         "bx lr;"
         :
         : "r" (taskp->reg) : "r0", "lr");
@@ -114,7 +127,7 @@ void svc_handler()
 
     PEND_SV;
     
-    asm("mov lr, #0xFFFFFFF9;"
+    asm("mov lr, #0xFFFFFFFD;" /* unprivileged handler mode */
         "bx lr;");
 }
 
@@ -181,7 +194,7 @@ int sys_task_new(void *args)
     task_t *tp = NULL;
     uint32_t *sp;
         
-    /* search a free task */
+    /* Search a free task */
     for (p = task; p < task + NR_TASK; p++) {
         if (p->state & STATE_FREE) {
             tp = p;
@@ -191,7 +204,7 @@ int sys_task_new(void *args)
     if (tp == NULL)
         return -1; /* ERROR: tasks are full */
 
-    /* allocate new stack */
+    /* Allocate new stack */
     sp = (uint32_t *)mem_alloc(sizeof(uint32_t)*argp[2]);
     if (sp == NULL)
         return -1; /* ERROR: stack allocation error */
@@ -200,11 +213,10 @@ int sys_task_new(void *args)
     *(sp + 7) = 0x01000000;        /* xPSR */
     *(sp + 6) = argp[0]; /* Return address */
         
-    /* clear all register */
+    /* Clear all register */
     memset(tp->reg, 0, sizeof(tp->reg));
 
     tp->reg[REG_SP] = (uint32_t)sp;
-    tp->reg[REG_LR] = 0xFFFFFFF9;
     
     tp->id    = tp - task;
     tp->state = STATE_SUSPEND;
@@ -228,22 +240,6 @@ int sys_task_exit(void *args)
     mem_free((void *)taskp->reg[REG_SP]);
     return 0;
 }
-
-#define SYS_CALL_STUB(svc, name, ...) int name(__VA_ARGS__) {   \
-        int ret;                                                \
-        asm volatile ("svc %1;"                                 \
-                      "mov %0, r0;"                             \
-                      : "=r" (ret)                              \
-                      : "I" (svc)                               \
-                      : "r0", "r1", "r2", "r3");                \
-        return ret;                                             \
-    }
-
-SYS_CALL_STUB(0, s_switch, void);
-SYS_CALL_STUB(1, s_debug, char *dummy);
-SYS_CALL_STUB(2, s_task_new, void (*dummy)(), int pri, int stack_size);
-SYS_CALL_STUB(3, s_task_start, int dummy);
-SYS_CALL_STUB(4, s_task_exit, int dummy);
 
 void task_init()
 {
@@ -290,7 +286,7 @@ void main_task()
 {
     int id[2];
     
-    /* enable systick interrupt */
+    /* Enable systick interrupt */
     SYST_RVR = SYST_CALIB * 100;
     SYST_CSR = 0x00000007;
     
@@ -309,10 +305,10 @@ int main()
     int id;
 
     task_init();
-	id = sys_task_new(args); /* setup initial task */
-	*(int *)args = id;
-	sys_task_start(args);
-	s_task_exit(0); /* does not return here */
+    id = sys_task_new(args); /* Setup main task */
+    *(int *)args = id;
+    sys_task_start(args);
+    s_task_exit(0); /* does not return here */
 
-	return 0;
+    return 0;
 }
