@@ -66,6 +66,7 @@ SYS_CALL_STUB(4, s_task_exit, int dummy);
 
 task_t task[NR_TASK];
 task_t *taskp  = NULL;
+int resched = 0;
 
 void print_reg()
 {
@@ -111,11 +112,11 @@ void pendsv_handler()
 
 void systick_handler()
 {
-    if (++taskp->tick > TICK_TH) {
+    if (taskp && ++taskp->tick > TICK_TH) {
         taskp->state = STATE_READY;
         taskp->tick = 0;
+        PEND_SV;
     }
-    PEND_SV;
 }
 
 __attribute__ ((naked))
@@ -128,11 +129,8 @@ void svc_handler()
         "ldr   r1, [r0, #4*6];"
         "sub   r1, r1, #2;"
         "ldrb  r1, [r1];"
-        "bl svc_dispatch;");
-
-    PEND_SV;
-    
-    asm("mov lr, #0xFFFFFFFD;" /* unprivileged handler mode */
+        "bl svc_dispatch;"
+        "mov lr, #0xFFFFFFFD;" /* unprivileged handler mode */
         "bx lr;");
 }
 
@@ -168,10 +166,15 @@ void schedule()
 void svc_dispatch(void *args, int svc_number)
 {
     int eid;
+
     printf("*** SVC call(%d) ***\n", svc_number);
+    resched = 0;
 
     eid = syscall_table[svc_number](args);
     *(int *)args = eid;
+
+    if (resched)
+        PEND_SV;
 }
 
 int sys_switch(void *args)
@@ -227,7 +230,9 @@ int sys_task_new(void *args)
     tp->state = STATE_SUSPEND;
     tp->pri   = argp[1];
     tp->tick  = 0;
-    
+
+    resched = 1; /* necessary to reschedule */
+
     return tp->id;
 }
 
@@ -236,6 +241,9 @@ int sys_task_start(void *args)
     int *argp = args;
     int id = argp[0];
     task[id].state = STATE_READY;
+
+    resched = 1; /* necessary to reschedule */
+
     return 0;
 }
 
@@ -243,6 +251,9 @@ int sys_task_exit(void *args)
 {
     taskp->state = STATE_FREE;
     mem_free((void *)taskp->reg[REG_SP]);
+
+    resched = 1; /* necessary to reschedule */
+
     return 0;
 }
 
