@@ -15,9 +15,12 @@
 
 /* Task Control Block (TCB) */
 typedef struct {
-    int id;
-    int state;
-    int pri;
+    uint32_t id;
+    uint32_t state;
+    void     *entry;
+    uint32_t *stack_bottom;
+    size_t   stack_size;
+    int      pri;
     uint32_t tick;
     uint32_t reg[NR_REG]; /* R4-R11, SP */
 } task_t;
@@ -85,6 +88,7 @@ void print_reg()
 void default_handler()
 {
     puts("[default_handler] Unhandled exception occured!");
+    while (1) continue;
 }
 
 __attribute__ ((naked))
@@ -140,22 +144,22 @@ void schedule()
     task_t *n = NULL;
     int pri = PRI_MAX + 1;
 
-    /* If the current running task does not expired its tick, task switching 
-       does not occur and the current running task goes on to its process. */
-    if (taskp->state == STATE_RUNNING)
-        return;
+    if (taskp->state & STATE_RUNNING)
+        taskp->state = STATE_READY;
 
-    /* Select the next running task from ready state tasks.
-       Scheduling algorithm is priority based round robin. */
+    /*
+     * this routine selects the next running task from ready state tasks.
+     * Scheduling algorithm is priority based round robin.
+     */
     do {
-        if (p->state == STATE_READY && p->pri < pri) {
+        if ((p->state & STATE_READY) && p->pri < pri) {
             pri = p->pri;
             n = p;
         }
         if (++p == task + NR_TASK - 1)
             p = task;
     } while (p != taskp + 1);
-        
+
     if (n == NULL)
         return; /* ERROR: no task is available */
 
@@ -200,8 +204,9 @@ int sys_task_new(void *args)
     unsigned int *argp = args;
     task_t *p;
     task_t *tp = NULL;
-    uint32_t *sp;
-        
+    uint32_t *stack_bottom;
+    size_t stack_size = argp[2];
+
     /* Search a free task */
     for (p = task; p < task + NR_TASK; p++) {
         if (p->state & STATE_FREE) {
@@ -213,25 +218,17 @@ int sys_task_new(void *args)
         return -1; /* ERROR: tasks are full */
 
     /* Allocate new stack */
-    sp = (uint32_t *)mem_alloc(sizeof(uint32_t)*argp[2]);
-    if (sp == NULL)
+    stack_bottom = (uint32_t *)mem_alloc(sizeof(uint32_t) * stack_size);
+    if (stack_bottom == NULL)
         return -1; /* ERROR: stack allocation error */
-    sp += argp[2] - 8;
-    memset(sp, 0, sizeof(uint32_t) * 8);
-    *(sp + 7) = 0x01000000;        /* xPSR */
-    *(sp + 6) = argp[0]; /* Return address */
-        
-    /* Clear all register */
-    memset(tp->reg, 0, sizeof(tp->reg));
+    tp->stack_bottom = stack_bottom;
+    tp->stack_size   = stack_size;
 
-    tp->reg[REG_SP] = (uint32_t)sp;
-    
     tp->id    = tp - task;
     tp->state = STATE_SUSPEND;
+    tp->entry = (void *)argp[0];
     tp->pri   = argp[1];
     tp->tick  = 0;
-
-    resched = 1; /* necessary to reschedule */
 
     return tp->id;
 }
@@ -240,9 +237,23 @@ int sys_task_start(void *args)
 {
     int *argp = args;
     int id = argp[0];
-    task[id].state = STATE_READY;
+    task_t *tp = &task[id];
+    uint32_t *sp = tp->stack_bottom + tp->stack_size - 8;
 
-    resched = 1; /* necessary to reschedule */
+    /* Clear all register */
+    memset(tp->reg, 0, sizeof(tp->reg));
+
+    /* Initialize stack values used when returning to user mode */
+    memset(sp, 0, sizeof(uint32_t) * 8);
+    sp[7] = 0x01000000;          /* xPSR */
+    sp[6] = (uint32_t)tp->entry; /* Return address */
+    tp->reg[REG_SP] = (uint32_t)sp;
+
+    tp->state = STATE_READY;
+    tp->tick  = 0;
+
+    /* necessary to reschedule */
+    resched = 1;
 
     return 0;
 }
@@ -250,9 +261,9 @@ int sys_task_start(void *args)
 int sys_task_exit(void *args)
 {
     taskp->state = STATE_FREE;
-    mem_free((void *)taskp->reg[REG_SP]);
 
-    resched = 1; /* necessary to reschedule */
+    /* necessary to reschedule */
+    resched = 1;
 
     return 0;
 }
@@ -275,6 +286,12 @@ void task_init()
 }
 
 /* =================================================== */
+
+void sub_task0()
+{
+    puts("[sub_task0]");
+    s_task_exit(0);
+}
 
 void sub_task1()
 {
@@ -300,18 +317,26 @@ void sub_task2()
 
 void main_task()
 {
-    int id[2];
+    int id[3];
     
     /* Enable systick interrupt */
     SYST_RVR = SYST_CALIB * 100;
     SYST_CSR = 0x00000007;
     
-    printf("[main_task]: start\n");
-    id[0] = s_task_new(sub_task1, 2, 256);
-    id[1] = s_task_new(sub_task2, 2, 256);
+    puts("[main_task]: start");
+
+    /* Create some tasks */
+    id[0] = s_task_new(sub_task0, 0, 64);
+    id[1] = s_task_new(sub_task1, 2, 256);
+    id[2] = s_task_new(sub_task2, 2, 256);
+
+    /* Start them */
     s_task_start(id[0]);
+    s_task_start(id[0]); /* start again */
     s_task_start(id[1]);
-    printf("[main_task]: done\n");
+    s_task_start(id[2]);
+
+    puts("[main_task]: done");
     s_task_exit(0);
 }
 
