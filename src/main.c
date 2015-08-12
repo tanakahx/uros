@@ -8,6 +8,7 @@
 #define STATE_SUSPEND 2
 #define STATE_READY   4
 #define STATE_RUNNING 8
+#define STATE_WAITING 16
 #define NR_REG 9
 #define PRI_MAX 255
 #define TICK_TH 10
@@ -22,6 +23,8 @@ typedef struct {
     size_t   stack_size;
     int      pri;
     uint32_t tick;
+    uint32_t ev_wait;
+    uint32_t ev_flag;
     uint32_t reg[NR_REG]; /* R4-R11, SP */
 } task_t;
 
@@ -42,6 +45,10 @@ int sys_debug(void *args);
 int sys_task_new(void *args);
 int sys_task_start(void *args);
 int sys_task_exit(void *args);
+int sys_set_event(void *args);
+int sys_clear_event(void *args);
+int sys_get_event(void *args);
+int sys_wait_event(void *args);
 
 int (* const syscall_table[])(void *args) = {
     sys_switch,
@@ -49,6 +56,10 @@ int (* const syscall_table[])(void *args) = {
     sys_task_new,
     sys_task_start,
     sys_task_exit,
+    sys_set_event,
+    sys_clear_event,
+    sys_get_event,
+    sys_wait_event,
 };
 
 #define SYS_CALL_STUB(svc, name, ...) int name(__VA_ARGS__) {   \
@@ -66,6 +77,10 @@ SYS_CALL_STUB(1, s_debug, char *dummy);
 SYS_CALL_STUB(2, s_task_new, void (*dummy)(), int pri, int stack_size);
 SYS_CALL_STUB(3, s_task_start, int dummy);
 SYS_CALL_STUB(4, s_task_exit, int dummy);
+SYS_CALL_STUB(5, s_set_event, int id, int ev);
+SYS_CALL_STUB(6, s_clear_event, int id, int ev);
+SYS_CALL_STUB(7, s_get_event, int id, uint32_t *ev)
+SYS_CALL_STUB(8, s_wait_event, int ev);
 
 task_t task[NR_TASK];
 task_t *taskp  = NULL;
@@ -268,6 +283,57 @@ int sys_task_exit(void *args)
     return 0;
 }
 
+int sys_set_event(void *args)
+{
+    int id = ((int *)args)[0];
+    uint32_t ev = ((uint32_t *)args)[1];
+
+    if (!(task[id].state & STATE_SUSPEND)) {
+        task[id].ev_flag |= ev;
+        if ((task[id].ev_wait & task[id].ev_flag) && (task[id].state & STATE_WAITING)) {
+            task[id].ev_wait = 0;
+            task[id].state = STATE_READY;
+            resched = 1;
+        }
+    }
+
+    return 0;
+}
+
+int sys_clear_event(void *args)
+{
+    int id = ((int *)args)[0];
+    uint32_t ev = ((uint32_t *)args)[1];
+
+    task[id].ev_flag &= ~ev;
+
+    return 0;
+}
+
+int sys_get_event(void *args)
+{
+    int id = ((int *)args)[0];
+    uint32_t *ev = ((uint32_t *)args)[1];
+
+    *ev = task[id].ev_flag;
+
+    return 0;
+}
+
+int sys_wait_event(void *args)
+{
+    uint32_t ev = ((uint32_t *)args)[0];
+
+    taskp->ev_wait = ev;
+    if (taskp->ev_wait & taskp->ev_flag)
+        taskp->state = STATE_READY;
+    else
+        taskp->state = STATE_WAITING;
+    resched = 1;
+
+    return 0;
+}
+
 void task_init()
 {
     int i;
@@ -287,6 +353,8 @@ void task_init()
 
 /* =================================================== */
 
+int id[4];
+
 void sub_task0()
 {
     puts("[sub_task0]");
@@ -296,10 +364,15 @@ void sub_task0()
 void sub_task1()
 {
     volatile int i = 0;
+    int count = 0;
     while (1) {
         if (i++ == 0x2000000) {
             puts("[sub_task1]");
             i = 0;
+            if (++count == 3) {
+                puts("[sub_task1]: set_event");
+                s_set_event(id[3], 0x1 << 0);
+            }
         }
     }
 }
@@ -307,18 +380,39 @@ void sub_task1()
 void sub_task2()
 {
     volatile int i = 0;
+    int count = 0;
     while (1) {
         if (i++ == 0x2000000) {
             puts("[sub_task2]");
             i = 0;
+            if (++count == 3) {
+                puts("[sub_task2]: set_event");
+                s_set_event(id[3], 0x1 << 1);
+            }
         }
+    }
+}
+
+void sub_task3()
+{
+    uint32_t ev;
+
+    while (1) {
+        s_wait_event(0x3);
+        s_get_event(id[3], &ev);
+        if (ev == (0x1 << 0))
+            puts("[sub_task3]: wake up by sub_task1");
+        else if (ev == (0x1 << 1))
+            puts("[sub_task3]: wake up by sub_task2");
+        else
+            puts("[sub_task3]: wake up by unknown");
+        s_clear_event(id[3], -1);
+            
     }
 }
 
 void main_task()
 {
-    int id[3];
-    
     /* Enable systick interrupt */
     SYST_RVR = SYST_CALIB * 100;
     SYST_CSR = 0x00000007;
@@ -329,12 +423,14 @@ void main_task()
     id[0] = s_task_new(sub_task0, 0, 64);
     id[1] = s_task_new(sub_task1, 2, 256);
     id[2] = s_task_new(sub_task2, 2, 256);
+    id[3] = s_task_new(sub_task3, 1, 256);
 
     /* Start them */
     s_task_start(id[0]);
     s_task_start(id[0]); /* start again */
     s_task_start(id[1]);
     s_task_start(id[2]);
+    s_task_start(id[3]);
 
     puts("[main_task]: done");
     s_task_exit(0);
