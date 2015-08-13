@@ -4,6 +4,7 @@
 #include "lib.h"
 
 #define NR_TASK 64
+#define NR_RES  8
 #define STATE_FREE    1
 #define STATE_SUSPEND 2
 #define STATE_READY   4
@@ -11,20 +12,34 @@
 #define STATE_WAITING 16
 #define NR_REG 9
 #define PRI_MAX 255
-#define TICK_TH 10
+#define TICK_TH 1
 #define PEND_SV ICSR |= (1<<28)
 
-/* Task Control Block (TCB) */
+/* Resource Type */
 typedef struct {
+    uint32_t owner;
+    int pri;
+} res_t;
+
+/* Wait queue */
+typedef struct wque {
+    struct wque *next;
+    struct wque *prev;
+} wque_t;
+
+/* Task Control Block (TCB) */
+typedef struct task {
     uint32_t id;
     uint32_t state;
     void     *entry;
     uint32_t *stack_bottom;
     size_t   stack_size;
     int      pri;
+    int      pre_pri;
     uint32_t tick;
     uint32_t ev_wait;
     uint32_t ev_flag;
+    wque_t wque;
     uint32_t reg[NR_REG]; /* R4-R11, SP */
 } task_t;
 
@@ -45,6 +60,8 @@ int sys_debug(void *args);
 int sys_task_new(void *args);
 int sys_task_start(void *args);
 int sys_task_exit(void *args);
+int sys_get_resource(void *args);
+int sys_release_resource(void *args);
 int sys_set_event(void *args);
 int sys_clear_event(void *args);
 int sys_get_event(void *args);
@@ -56,6 +73,8 @@ int (* const syscall_table[])(void *args) = {
     sys_task_new,
     sys_task_start,
     sys_task_exit,
+    sys_get_resource,
+    sys_release_resource,
     sys_set_event,
     sys_clear_event,
     sys_get_event,
@@ -72,18 +91,22 @@ int (* const syscall_table[])(void *args) = {
         return ret;                                             \
     }
 
-SYS_CALL_STUB(0, s_switch, void);
-SYS_CALL_STUB(1, s_debug, char *dummy);
-SYS_CALL_STUB(2, s_task_new, void (*dummy)(), int pri, int stack_size);
-SYS_CALL_STUB(3, s_task_start, int dummy);
-SYS_CALL_STUB(4, s_task_exit, int dummy);
-SYS_CALL_STUB(5, s_set_event, int id, int ev);
-SYS_CALL_STUB(6, s_clear_event, int id, int ev);
-SYS_CALL_STUB(7, s_get_event, int id, uint32_t *ev)
-SYS_CALL_STUB(8, s_wait_event, int ev);
+SYS_CALL_STUB( 0, s_switch, void);
+SYS_CALL_STUB( 1, s_debug, char *dummy);
+SYS_CALL_STUB( 2, s_task_new, void (*dummy)(), int pri, int stack_size);
+SYS_CALL_STUB( 3, s_task_start, int dummy);
+SYS_CALL_STUB( 4, s_task_exit, int dummy);
+SYS_CALL_STUB( 5, s_get_resource, int res_id);
+SYS_CALL_STUB( 6, s_release_resource, int res_id);
+SYS_CALL_STUB( 7, s_set_event, int id, int ev);
+SYS_CALL_STUB( 8, s_clear_event, int id, int ev);
+SYS_CALL_STUB( 9, s_get_event, int id, uint32_t *ev)
+SYS_CALL_STUB(10, s_wait_event, int ev);
 
 task_t task[NR_TASK];
 task_t *taskp  = NULL;
+res_t res[NR_RES];
+wque_t wque_base[NR_RES];
 int resched = 0;
 
 void print_reg()
@@ -283,6 +306,81 @@ int sys_task_exit(void *args)
     return 0;
 }
 
+int sys_get_resource(void *args)
+{
+    uint32_t res_id = ((uint32_t *)args)[0];
+    uint32_t task_id = taskp->id;
+    wque_t *wp;
+
+    if (!res[res_id].owner) {
+        /* Allocate resource for this task */
+        res[res_id].owner = task_id;
+
+        /* Raise priority to the resource priority (priority ceiling protocol) */
+        taskp->pre_pri = taskp->pri;
+        taskp->pri = res[res_id].pri;
+    }
+    else {
+        /* Add this task into the wait queue */
+        wp = &task[task_id].wque;
+        wp->next                     = wque_base[res_id].next;
+        wp->prev                     = &wque_base[res_id];
+        wque_base[res_id].next->prev = wp;
+        wque_base[res_id].next       = wp;
+
+        /* Go to wait state */
+        taskp->state = STATE_WAITING;
+    }
+
+    resched = 1;
+
+    return 0;
+}
+
+int sys_release_resource(void *args)
+{
+    uint32_t res_id = ((uint32_t *)args)[0];
+    uint32_t task_id;
+    wque_t *wp;
+
+    if (res[res_id].owner != taskp->id)
+        return -1;
+
+    /* Release resource */
+    res[res_id].owner = 0;
+
+    /* Lower priority to the original level */
+    taskp->pri = taskp->pre_pri;
+
+    if (wque_base[res_id].prev != &wque_base[res_id]) {
+        /* Remove the head of the wait queue */
+        wp = wque_base[res_id].prev;
+        wp->prev->next         = &wque_base[res_id];
+        wque_base[res_id].prev = wp->prev;
+        wp->next = NULL;
+        wp->prev = NULL;
+
+        /*
+         * Task id that is begin removed from the wait queue can be calculated
+         * by the offset from the beggining of a task array.
+         */
+        task_id = ((size_t)wp - (size_t)task) / sizeof(task_t);
+
+        /* Allocate resource for this task */
+        res[res_id].owner = task_id;
+
+        /* Temporarily raise priority (priority ceiling protocol) */
+        task[task_id].pre_pri = task[task_id].pri;
+        task[task_id].pri = res[res_id].pri;
+
+        task[task_id].state = STATE_READY;
+    }
+
+    resched = 1;
+
+    return 0;
+}
+
 int sys_set_event(void *args)
 {
     int id = ((int *)args)[0];
@@ -313,7 +411,7 @@ int sys_clear_event(void *args)
 int sys_get_event(void *args)
 {
     int id = ((int *)args)[0];
-    uint32_t *ev = ((uint32_t *)args)[1];
+    uint32_t *ev = ((uint32_t **)args)[1];
 
     *ev = task[id].ev_flag;
 
@@ -349,6 +447,12 @@ void task_init()
     task[0].state = STATE_RUNNING;
     task[0].pri = PRI_MAX;
     taskp = &task[0];
+
+    /* Wait queue */
+    for (i = 0; i < NR_RES; i++) {
+        wque_base[i].next = &wque_base[i];
+        wque_base[i].prev = &wque_base[i];
+    }
 }
 
 /* =================================================== */
@@ -365,9 +469,12 @@ void sub_task1()
 {
     volatile int i = 0;
     int count = 0;
+
     while (1) {
-        if (i++ == 0x2000000) {
+        if (i++ == 0x200000) {
+            s_get_resource(0);
             puts("[sub_task1]");
+            s_release_resource(0);
             i = 0;
             if (++count == 3) {
                 puts("[sub_task1]: set_event");
@@ -381,9 +488,12 @@ void sub_task2()
 {
     volatile int i = 0;
     int count = 0;
+
     while (1) {
-        if (i++ == 0x2000000) {
+        if (i++ == 0x200000) {
+            s_get_resource(0);
             puts("[sub_task2]");
+            s_release_resource(0);
             i = 0;
             if (++count == 3) {
                 puts("[sub_task2]: set_event");
@@ -407,14 +517,13 @@ void sub_task3()
         else
             puts("[sub_task3]: wake up by unknown");
         s_clear_event(id[3], -1);
-            
     }
 }
 
 void main_task()
 {
     /* Enable systick interrupt */
-    SYST_RVR = SYST_CALIB * 100;
+    SYST_RVR = SYST_CALIB * 1;
     SYST_CSR = 0x00000007;
     
     puts("[main_task]: start");
@@ -424,6 +533,9 @@ void main_task()
     id[1] = s_task_new(sub_task1, 2, 256);
     id[2] = s_task_new(sub_task2, 2, 256);
     id[3] = s_task_new(sub_task3, 1, 256);
+
+    /* Create resources */
+    res[0].pri = 0;
 
     /* Start them */
     s_task_start(id[0]);
