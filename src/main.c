@@ -15,17 +15,18 @@
 #define TICK_TH 1
 #define PEND_SV ICSR |= (1<<28)
 
-/* Resource Type */
-typedef struct {
-    uint32_t owner;
-    int pri;
-} res_t;
-
 /* Wait queue */
 typedef struct wque {
     struct wque *next;
     struct wque *prev;
 } wque_t;
+
+/* Resource Type */
+typedef struct {
+    uint32_t owner;
+    int pri;
+    wque_t wque;
+} res_t;
 
 /* Task Control Block (TCB) */
 typedef struct task {
@@ -106,7 +107,6 @@ SYS_CALL_STUB(10, s_wait_event, int ev);
 task_t task[NR_TASK];
 task_t *taskp  = NULL;
 res_t res[NR_RES];
-wque_t wque_base[NR_RES];
 int resched = 0;
 
 void print_reg()
@@ -323,10 +323,10 @@ int sys_get_resource(void *args)
     else {
         /* Add this task into the wait queue */
         wp = &task[task_id].wque;
-        wp->next                     = wque_base[res_id].next;
-        wp->prev                     = &wque_base[res_id];
-        wque_base[res_id].next->prev = wp;
-        wque_base[res_id].next       = wp;
+        wp->next                    = res[res_id].wque.next;
+        wp->prev                    = &res[res_id].wque;
+        res[res_id].wque.next->prev = wp;
+        res[res_id].wque.next       = wp;
 
         /* Go to wait state */
         taskp->state = STATE_WAITING;
@@ -352,11 +352,11 @@ int sys_release_resource(void *args)
     /* Lower priority to the original level */
     taskp->pri = taskp->pre_pri;
 
-    if (wque_base[res_id].prev != &wque_base[res_id]) {
+    if (res[res_id].wque.prev != &res[res_id].wque) {
         /* Remove the head of the wait queue */
-        wp = wque_base[res_id].prev;
-        wp->prev->next         = &wque_base[res_id];
-        wque_base[res_id].prev = wp->prev;
+        wp = res[res_id].wque.prev;
+        wp->prev->next        = &res[res_id].wque;
+        res[res_id].wque.prev = wp->prev;
         wp->next = NULL;
         wp->prev = NULL;
 
@@ -450,8 +450,8 @@ void task_init()
 
     /* Wait queue */
     for (i = 0; i < NR_RES; i++) {
-        wque_base[i].next = &wque_base[i];
-        wque_base[i].prev = &wque_base[i];
+        res[i].wque.next = &res[i].wque;
+        res[i].wque.prev = &res[i].wque;
     }
 }
 
