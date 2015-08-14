@@ -194,7 +194,7 @@ void schedule()
             pri = p->pri;
             n = p;
         }
-        if (++p == task + NR_TASK - 1)
+        if (++p == task + NR_TASK)
             p = task;
     } while (p != taskp + 1);
 
