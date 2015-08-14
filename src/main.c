@@ -57,9 +57,9 @@ enum {
 
 int sys_switch(void *args);
 int sys_debug(void *args);
-int sys_task_new(void *args);
-int sys_task_start(void *args);
-int sys_task_exit(void *args);
+int sys_declare_task(void *args);
+int sys_activate_task(void *args);
+int sys_terminate_task(void *args);
 int sys_get_resource(void *args);
 int sys_release_resource(void *args);
 int sys_set_event(void *args);
@@ -70,9 +70,9 @@ int sys_wait_event(void *args);
 int (* const syscall_table[])(void *args) = {
     sys_switch,
     sys_debug,
-    sys_task_new,
-    sys_task_start,
-    sys_task_exit,
+    sys_declare_task,
+    sys_activate_task,
+    sys_terminate_task,
     sys_get_resource,
     sys_release_resource,
     sys_set_event,
@@ -93,9 +93,9 @@ int (* const syscall_table[])(void *args) = {
 
 SYS_CALL_STUB( 0, s_switch, void);
 SYS_CALL_STUB( 1, s_debug, char *dummy);
-SYS_CALL_STUB( 2, s_task_new, void (*dummy)(), int pri, int stack_size);
-SYS_CALL_STUB( 3, s_task_start, int dummy);
-SYS_CALL_STUB( 4, s_task_exit, int dummy);
+SYS_CALL_STUB( 2, s_declare_task, void (*entry)(), int pri, int stack_size);
+SYS_CALL_STUB( 3, s_activate_task, int task_id);
+SYS_CALL_STUB( 4, s_terminate_task);
 SYS_CALL_STUB( 5, s_get_resource, int res_id);
 SYS_CALL_STUB( 6, s_release_resource, int res_id);
 SYS_CALL_STUB( 7, s_set_event, int id, int ev);
@@ -237,7 +237,7 @@ int sys_debug(void *args)
  * args[1] : task priority
  * args[2] : stack size (word)
  */
-int sys_task_new(void *args)
+int sys_declare_task(void *args)
 {
     unsigned int *argp = args;
     task_t *p;
@@ -271,7 +271,7 @@ int sys_task_new(void *args)
     return tp->id;
 }
 
-int sys_task_start(void *args)
+int sys_activate_task(void *args)
 {
     int *argp = args;
     int id = argp[0];
@@ -296,7 +296,7 @@ int sys_task_start(void *args)
     return 0;
 }
 
-int sys_task_exit(void *args)
+int sys_terminate_task(void *args)
 {
     taskp->state = STATE_FREE;
 
@@ -462,7 +462,7 @@ int id[4];
 void sub_task0()
 {
     puts("[sub_task0]");
-    s_task_exit(0);
+    s_terminate_task();
 }
 
 void sub_task1()
@@ -529,23 +529,23 @@ void main_task()
     puts("[main_task]: start");
 
     /* Create some tasks */
-    id[0] = s_task_new(sub_task0, 0, 64);
-    id[1] = s_task_new(sub_task1, 2, 256);
-    id[2] = s_task_new(sub_task2, 2, 256);
-    id[3] = s_task_new(sub_task3, 1, 256);
+    id[0] = s_declare_task(sub_task0, 0, 64);
+    id[1] = s_declare_task(sub_task1, 2, 256);
+    id[2] = s_declare_task(sub_task2, 2, 256);
+    id[3] = s_declare_task(sub_task3, 1, 256);
 
     /* Create resources */
     res[0].pri = 0;
 
     /* Start them */
-    s_task_start(id[0]);
-    s_task_start(id[0]); /* start again */
-    s_task_start(id[1]);
-    s_task_start(id[2]);
-    s_task_start(id[3]);
+    s_activate_task(id[0]);
+    s_activate_task(id[0]); /* start again */
+    s_activate_task(id[1]);
+    s_activate_task(id[2]);
+    s_activate_task(id[3]);
 
     puts("[main_task]: done");
-    s_task_exit(0);
+    s_terminate_task();
 }
 
 int main()
@@ -554,10 +554,12 @@ int main()
     int id;
 
     task_init();
-    id = sys_task_new(args); /* Setup main task */
+    id = sys_declare_task(args); /* Setup main task */
     *(int *)args = id;
-    sys_task_start(args);
-    s_task_exit(0); /* does not return here */
+    sys_activate_task(args);
+    s_terminate_task();
+
+    /* does not return here */
 
     return 0;
 }
