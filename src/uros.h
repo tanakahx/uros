@@ -9,6 +9,9 @@ typedef unsigned char  uint8_t;
 typedef unsigned short uint16_t;
 typedef unsigned int   uint32_t;
 
+typedef int (*sys_call_t)(void);
+typedef void (*thread_t)(int);
+
 void start_os(void);
 
 #endif

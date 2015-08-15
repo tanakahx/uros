@@ -55,30 +55,28 @@ enum {
     REG_SP,
 };
 
-int sys_switch(void *args);
-int sys_debug(void *args);
-int sys_declare_task(void *args);
-int sys_activate_task(void *args);
-int sys_terminate_task(void *args);
-int sys_get_resource(void *args);
-int sys_release_resource(void *args);
-int sys_set_event(void *args);
-int sys_clear_event(void *args);
-int sys_get_event(void *args);
-int sys_wait_event(void *args);
+int sys_debug(const char *s);
+int sys_declare_task(thread_t entry, int pri, size_t stack_size);
+int sys_activate_task(int task_id);
+int sys_terminate_task(void);
+int sys_get_resource(uint32_t res_id);
+int sys_release_resource(uint32_t res_id);
+int sys_set_event(int task_id, uint32_t event);
+int sys_clear_event(int task_id, uint32_t event);
+int sys_get_event(int task_id, uint32_t *event);
+int sys_wait_event(uint32_t event);
 
-int (* const syscall_table[])(void *args) = {
-    sys_switch,
-    sys_debug,
-    sys_declare_task,
-    sys_activate_task,
-    sys_terminate_task,
-    sys_get_resource,
-    sys_release_resource,
-    sys_set_event,
-    sys_clear_event,
-    sys_get_event,
-    sys_wait_event,
+const sys_call_t syscall_table[] = {
+    (sys_call_t)sys_debug,
+    (sys_call_t)sys_declare_task,
+    (sys_call_t)sys_activate_task,
+    (sys_call_t)sys_terminate_task,
+    (sys_call_t)sys_get_resource,
+    (sys_call_t)sys_release_resource,
+    (sys_call_t)sys_set_event,
+    (sys_call_t)sys_clear_event,
+    (sys_call_t)sys_get_event,
+    (sys_call_t)sys_wait_event,
 };
 
 #define SYS_CALL_STUB(svc, name, ...) int name(__VA_ARGS__) {   \
@@ -91,22 +89,20 @@ int (* const syscall_table[])(void *args) = {
         return ret;                                             \
     }
 
-SYS_CALL_STUB( 0, s_switch, void);
-SYS_CALL_STUB( 1, s_debug, char *dummy);
-SYS_CALL_STUB( 2, s_declare_task, void (*entry)(), int pri, int stack_size);
-SYS_CALL_STUB( 3, s_activate_task, int task_id);
-SYS_CALL_STUB( 4, s_terminate_task);
-SYS_CALL_STUB( 5, s_get_resource, int res_id);
-SYS_CALL_STUB( 6, s_release_resource, int res_id);
-SYS_CALL_STUB( 7, s_set_event, int id, int ev);
-SYS_CALL_STUB( 8, s_clear_event, int id, int ev);
-SYS_CALL_STUB( 9, s_get_event, int id, uint32_t *ev)
-SYS_CALL_STUB(10, s_wait_event, int ev);
+SYS_CALL_STUB( 0, debug, const char *s);
+SYS_CALL_STUB( 1, declare_task, thread_t entry, int pri, int stack_size);
+SYS_CALL_STUB( 2, activate_task, int task_id);
+SYS_CALL_STUB( 3, terminate_task);
+SYS_CALL_STUB( 4, get_resource, int res_id);
+SYS_CALL_STUB( 5, release_resource, int res_id);
+SYS_CALL_STUB( 6, set_event, int id, int event);
+SYS_CALL_STUB( 7, clear_event, int id, int event);
+SYS_CALL_STUB( 8, get_event, int id, uint32_t *event)
+SYS_CALL_STUB( 9, wait_event, int ev);
 
 task_t task[NR_TASK];
 task_t *taskp  = NULL;
 res_t res[NR_RES];
-int resched = 0;
 
 void print_reg()
 {
@@ -162,10 +158,17 @@ void svc_handler()
         "mrsne r0, psp;"
         "ldr   r1, [r0, #4*6];"
         "sub   r1, r1, #2;"
-        "ldrb  r1, [r1];"
-        "bl svc_dispatch;"
-        "ldr pc, =#0xFFFFFFFD;" /* unprivileged handler mode */
-        );
+        "ldrb  r1, [r1];"             /* SVC number */
+        "ldr   lr, [%0, r1, lsl #2];" /* Address of system call */
+        "push  {r0};"
+        "ldmia r0, {r0-r3};"
+        "blx   lr;"
+        "pop   {r1};"
+        "str   r0, [r1];"
+        "ldr   pc, =#0xFFFFFFFD;" /* unprivileged handler mode */
+        :
+        : "r"(syscall_table)
+        : "r0", "r1");
 }
 
 void schedule()
@@ -197,45 +200,18 @@ void schedule()
     taskp->state = STATE_RUNNING;
 }
 
-void svc_dispatch(void *args, int svc_number)
-{
-    int eid;
-
-    printf("*** SVC call(%d) ***\n", svc_number);
-    resched = 0;
-
-    eid = syscall_table[svc_number](args);
-    *(int *)args = eid;
-
-    if (resched)
-        pend_sv();
-}
-
-int sys_switch(void *args)
+int sys_debug(const char *s)
 {
     print_reg();
+    printf("DEBUG MESSAGE: %s\n", s);
     return 0;
 }
 
-int sys_debug(void *args)
+int sys_declare_task(thread_t entry, int pri, size_t stack_size)
 {
-    char **argp  = args;
-    printf("DEBUG MESSAGE: %s\n", argp[0]);
-    return 0;
-}
-
-/*
- * args[0] : task entry function
- * args[1] : task priority
- * args[2] : stack size (word)
- */
-int sys_declare_task(void *args)
-{
-    unsigned int *argp = args;
     task_t *p;
     task_t *tp = NULL;
     uint32_t *stack_bottom;
-    size_t stack_size = argp[2];
 
     /* Search a free task */
     for (p = task; p < task + NR_TASK; p++) {
@@ -256,18 +232,16 @@ int sys_declare_task(void *args)
 
     tp->id    = tp - task;
     tp->state = STATE_SUSPEND;
-    tp->entry = (void *)argp[0];
-    tp->pri   = argp[1];
+    tp->entry = entry;
+    tp->pri   = pri;
     tp->tick  = 0;
 
     return tp->id;
 }
 
-int sys_activate_task(void *args)
+int sys_activate_task(int task_id)
 {
-    int *argp = args;
-    int id = argp[0];
-    task_t *tp = &task[id];
+    task_t *tp = &task[task_id];
     uint32_t *sp = tp->stack_bottom + tp->stack_size - 8;
 
     /* Clear all register */
@@ -283,24 +257,23 @@ int sys_activate_task(void *args)
     tp->tick  = 0;
 
     /* necessary to reschedule */
-    resched = 1;
+    pend_sv();
 
     return 0;
 }
 
-int sys_terminate_task(void *args)
+int sys_terminate_task(void)
 {
     taskp->state = STATE_FREE;
 
     /* necessary to reschedule */
-    resched = 1;
+    pend_sv();
 
     return 0;
 }
 
-int sys_get_resource(void *args)
+int sys_get_resource(uint32_t res_id)
 {
-    uint32_t res_id = ((uint32_t *)args)[0];
     uint32_t task_id = taskp->id;
     wque_t *wp;
 
@@ -324,14 +297,14 @@ int sys_get_resource(void *args)
         taskp->state = STATE_WAITING;
     }
 
-    resched = 1;
+    /* necessary to reschedule */
+    pend_sv();
 
     return 0;
 }
 
-int sys_release_resource(void *args)
+int sys_release_resource(uint32_t res_id)
 {
-    uint32_t res_id = ((uint32_t *)args)[0];
     uint32_t task_id;
     wque_t *wp;
 
@@ -368,58 +341,52 @@ int sys_release_resource(void *args)
         task[task_id].state = STATE_READY;
     }
 
-    resched = 1;
+    /* necessary to reschedule */
+    pend_sv();
 
     return 0;
 }
 
-int sys_set_event(void *args)
+int sys_set_event(int task_id, uint32_t event)
 {
-    int id = ((int *)args)[0];
-    uint32_t ev = ((uint32_t *)args)[1];
+    if (!(task[task_id].state & STATE_SUSPEND)) {
+        task[task_id].ev_flag |= event;
+        if ((task[task_id].ev_wait & task[task_id].ev_flag) && (task[task_id].state & STATE_WAITING)) {
+            task[task_id].ev_wait = 0;
+            task[task_id].state = STATE_READY;
 
-    if (!(task[id].state & STATE_SUSPEND)) {
-        task[id].ev_flag |= ev;
-        if ((task[id].ev_wait & task[id].ev_flag) && (task[id].state & STATE_WAITING)) {
-            task[id].ev_wait = 0;
-            task[id].state = STATE_READY;
-            resched = 1;
+            /* necessary to reschedule */
+            pend_sv();
         }
     }
 
     return 0;
 }
 
-int sys_clear_event(void *args)
+int sys_clear_event(int task_id, uint32_t event)
 {
-    int id = ((int *)args)[0];
-    uint32_t ev = ((uint32_t *)args)[1];
-
-    task[id].ev_flag &= ~ev;
+    task[task_id].ev_flag &= ~event;
 
     return 0;
 }
 
-int sys_get_event(void *args)
+int sys_get_event(int task_id, uint32_t *event)
 {
-    int id = ((int *)args)[0];
-    uint32_t *ev = ((uint32_t **)args)[1];
-
-    *ev = task[id].ev_flag;
+    *event = task[task_id].ev_flag;
 
     return 0;
 }
 
-int sys_wait_event(void *args)
+int sys_wait_event(uint32_t event)
 {
-    uint32_t ev = ((uint32_t *)args)[0];
-
-    taskp->ev_wait = ev;
+    taskp->ev_wait = event;
     if (taskp->ev_wait & taskp->ev_flag)
         taskp->state = STATE_READY;
     else
         taskp->state = STATE_WAITING;
-    resched = 1;
+
+    /* necessary to reschedule */
+    pend_sv();
 
     return 0;
 }
@@ -451,68 +418,68 @@ void task_init()
 
 int id[4];
 
-void sub_task0()
+void sub_task0(int ex)
 {
     puts("[sub_task0]");
-    s_terminate_task();
+    terminate_task();
 }
 
-void sub_task1()
+void sub_task1(int ex)
 {
     volatile int i = 0;
     int count = 0;
 
     while (1) {
         if (i++ == 0x200000) {
-            s_get_resource(0);
+            get_resource(0);
             puts("[sub_task1]");
-            s_release_resource(0);
+            release_resource(0);
             i = 0;
             if (++count == 3) {
                 puts("[sub_task1]: set_event");
-                s_set_event(id[3], 0x1 << 0);
+                set_event(id[3], 0x1 << 0);
             }
         }
     }
 }
 
-void sub_task2()
+void sub_task2(int ex)
 {
     volatile int i = 0;
     int count = 0;
 
     while (1) {
         if (i++ == 0x200000) {
-            s_get_resource(0);
+            get_resource(0);
             puts("[sub_task2]");
-            s_release_resource(0);
+            release_resource(0);
             i = 0;
             if (++count == 3) {
                 puts("[sub_task2]: set_event");
-                s_set_event(id[3], 0x1 << 1);
+                set_event(id[3], 0x1 << 1);
             }
         }
     }
 }
 
-void sub_task3()
+void sub_task3(int ex)
 {
     uint32_t ev;
 
     while (1) {
-        s_wait_event(0x3);
-        s_get_event(id[3], &ev);
+        wait_event(0x3);
+        get_event(id[3], &ev);
         if (ev == (0x1 << 0))
             puts("[sub_task3]: wake up by sub_task1");
         else if (ev == (0x1 << 1))
             puts("[sub_task3]: wake up by sub_task2");
         else
             puts("[sub_task3]: wake up by unknown");
-        s_clear_event(id[3], -1);
+        clear_event(id[3], -1);
     }
 }
 
-void main_task()
+void main_task(int ex)
 {
     /* Enable systick interrupt */
     SYST_RVR = SYST_CALIB * 1;
@@ -521,38 +488,36 @@ void main_task()
     puts("[main_task]: start");
 
     /* Create some tasks */
-    id[0] = s_declare_task(sub_task0, 0, 64);
-    id[1] = s_declare_task(sub_task1, 2, 256);
-    id[2] = s_declare_task(sub_task2, 2, 256);
-    id[3] = s_declare_task(sub_task3, 1, 256);
+    id[0] = declare_task(sub_task0, 0, 64);
+    id[1] = declare_task(sub_task1, 2, 256);
+    id[2] = declare_task(sub_task2, 2, 256);
+    id[3] = declare_task(sub_task3, 1, 256);
 
     /* Create resources */
     res[0].pri = 0;
 
     /* Start them */
-    s_activate_task(id[0]);
-    s_activate_task(id[0]); /* start again */
-    s_activate_task(id[1]);
-    s_activate_task(id[2]);
-    s_activate_task(id[3]);
+    activate_task(id[0]);
+    activate_task(id[0]); /* start again */
+    activate_task(id[1]);
+    activate_task(id[2]);
+    activate_task(id[3]);
 
     puts("[main_task]: done");
-    s_terminate_task();
+    terminate_task();
 }
 
 int main()
 {
-    void *args[] = {main_task, (void *)1, (void *)256}; /* initial task's arguments */
     int id;
 
     task_init();
-    id = sys_declare_task(args); /* Setup main task */
-    *(int *)args = id;
-    sys_activate_task(args);
+    id = sys_declare_task(main_task, 1, 256); /* Setup main task */
+    sys_activate_task(id);
 
     enable_interrupt();
 
-    s_terminate_task();
+    terminate_task();
 
     /* does not return here */
 
