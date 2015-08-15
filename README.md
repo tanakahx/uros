@@ -1,6 +1,6 @@
-# uros - Micro Real-time Operating System
+# UROS - Micro Real-time Operating System
 
-Uros is micro real-time operating system designed for embedded system.
+UROS is micro real-time operating system designed for embedded system.
 
 ## Environment
 
