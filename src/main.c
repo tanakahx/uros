@@ -13,7 +13,6 @@
 #define NR_REG 9
 #define PRI_MAX 255
 #define TICK_TH 1
-#define PEND_SV ICSR |= (1<<28)
 
 /* Wait queue */
 typedef struct wque {
@@ -123,12 +122,6 @@ void print_reg()
     }
 }
 
-void default_handler()
-{
-    puts("[default_handler] Unhandled exception occured!");
-    while (1) continue;
-}
-
 __attribute__ ((naked))
 void pendsv_handler()
 {
@@ -144,10 +137,9 @@ void pendsv_handler()
     /* taskp may be changed after executing schedule(). */
     
     asm("ldmia %0!, {r4-r11};"
-        "mov lr, #0xFFFFFFFD;" /* unprivileged handler mode */
         "ldr r0, [%0];"        /* Load SP */
         "msr psp, r0;"
-        "bx lr;"
+        "ldr pc, =#0xFFFFFFFD;" /* unprivileged handler mode */
         :
         : "r" (taskp->reg) : "r0", "lr");
 }
@@ -157,7 +149,7 @@ void systick_handler()
     if (taskp && ++taskp->tick > TICK_TH) {
         taskp->state = STATE_READY;
         taskp->tick = 0;
-        PEND_SV;
+        pend_sv();
     }
 }
 
@@ -172,8 +164,8 @@ void svc_handler()
         "sub   r1, r1, #2;"
         "ldrb  r1, [r1];"
         "bl svc_dispatch;"
-        "mov lr, #0xFFFFFFFD;" /* unprivileged handler mode */
-        "bx lr;");
+        "ldr pc, =#0xFFFFFFFD;" /* unprivileged handler mode */
+        );
 }
 
 void schedule()
@@ -216,7 +208,7 @@ void svc_dispatch(void *args, int svc_number)
     *(int *)args = eid;
 
     if (resched)
-        PEND_SV;
+        pend_sv();
 }
 
 int sys_switch(void *args)
@@ -557,6 +549,9 @@ int main()
     id = sys_declare_task(args); /* Setup main task */
     *(int *)args = id;
     sys_activate_task(args);
+
+    enable_interrupt();
+
     s_terminate_task();
 
     /* does not return here */
