@@ -11,7 +11,7 @@ CFLAGS = -Wall -fno-builtin -Isrc
 LD := ld-arm
 LDFLAGS =
 
-OBJS := src/start.o src/main.o src/lib.o src/uart.o
+OBJS := src/kernel.o src/lib.o src/uart.o src/main.o
 
 include cpu/$(CPU)/Makefile
 
