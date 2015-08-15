@@ -4,10 +4,12 @@
 
 static void reset_handler(void);
 static void default_handler(void);
-extern void svc_handler();
-extern void systick_handler();
-extern void pendsv_handler();
-extern void default_handler();
+extern void svc_handler(void);
+extern void systick_handler(void);
+extern void pendsv_handler(void);
+extern void default_handler(void);
+
+extern void initialize_system(void);
 
 void (* const vector_table[])()  = {
     (void (*)())STACK_BTM,      /* initial MSP */
@@ -30,7 +32,11 @@ void (* const vector_table[])()  = {
 
 void reset_handler(void)
 {
-    start_os();
+    /* System dependent initialization */
+    initialize_system();
+
+    /* Let's get started. */
+    uros_main();
 }
 
 void default_handler(void)
