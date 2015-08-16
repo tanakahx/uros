@@ -21,7 +21,9 @@ void sub_task1(int ex)
             release_resource(0);
             i = 0;
             if (++count == 3) {
+                get_resource(0);
                 puts("[sub_task1]: set_event");
+                release_resource(0);
                 set_event(id[3], 0x1 << 0);
             }
         }
@@ -40,7 +42,9 @@ void sub_task2(int ex)
             release_resource(0);
             i = 0;
             if (++count == 3) {
+                get_resource(0);
                 puts("[sub_task2]: set_event");
+                release_resource(0);
                 set_event(id[3], 0x1 << 1);
             }
         }
@@ -66,10 +70,6 @@ void sub_task3(int ex)
 
 void main_task(int ex)
 {
-    /* Enable systick interrupt */
-    SYST_RVR = SYST_CALIB * 1;
-    SYST_CSR = 0x00000007;
-    
     puts("[main_task]: start");
 
     /* Create some tasks */
