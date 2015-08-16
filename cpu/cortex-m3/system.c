@@ -25,6 +25,13 @@ void set_basepri(int val)
                  "bx lr;");
 }
 
+__attribute__((naked))
+void set_psp(int val)
+{
+    asm volatile("msr PSP, r0;"
+                 "bx lr;");
+}
+
 void pend_sv(void)
 {
     ICSR |= (1<<28);
@@ -38,6 +45,9 @@ void initialize_system(void)
     
     /* Disable all interrupts until initialization is completed. */
     disable_interrupt();
+
+    /* Clear PSP register */
+    set_psp(0);
     
     /* Clear SRAM area with zero (bss section is cleared here) */
     memset((void *)LOAD_ADDR, 0, SRAM_SIZE);
