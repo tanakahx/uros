@@ -46,6 +46,8 @@ int sys_clear_event(int task_id, uint32_t event);
 int sys_get_event(int task_id, uint32_t *event);
 int sys_wait_event(uint32_t event);
 
+static void schedule();
+
 const sys_call_t syscall_table[] = {
     (sys_call_t)sys_debug,
     (sys_call_t)sys_declare_task,
@@ -81,7 +83,8 @@ SYS_CALL_STUB( 8, get_event, int id, uint32_t *event)
 SYS_CALL_STUB( 9, wait_event, uint32_t event);
 
 task_t task[NR_TASK];
-task_t *taskp  = NULL;
+task_t *taskp      = NULL;
+task_t *taskp_next = NULL;
 res_t res[NR_RES];
 uint32_t default_task_stack[DEFAULT_TASK_STACK_SIZE];
 
@@ -96,15 +99,14 @@ void pendsv_handler()
      */
     asm("mrs r0, PSP;"
         "cmp r0, #0;"
-        "ittt ne;"     /* Iff PSP is not null, we save the context. */
+        "itt ne;"     /* Iff PSP is not null, we save the context. */
         "stmdbne r0!, {r4-r11};"
         "strne r0, [%0];"
-        "blne schedule;"
         : 
         : "r" (&taskp->context)
         : "r0");
 
-    /* taskp may be changed after executing schedule(). */
+    taskp = taskp_next;
     
     asm("ldmia %0!, {r4-r11};"
         "msr PSP, %0;"
@@ -118,7 +120,7 @@ void systick_handler()
     if (taskp && ++taskp->tick > TICK_TH) {
         taskp->state = STATE_READY;
         taskp->tick = 0;
-        pend_sv();
+        schedule();
     }
 }
 
@@ -143,6 +145,14 @@ void svc_handler()
 
 void schedule()
 {
+    /*
+     * This routine selects the next running task from ready state tasks.
+     * Scheduling algorithm is priority based round robin.
+     * If SysTick timer is invoked while it is running, this routine may be reentered.
+     * This situation has no problem for now, because current implementation has no ready queue
+     * and the operation on the data structure like a linked list do not exist.
+     */
+
     task_t *p = taskp + 1;
     task_t *n = NULL;
     int pri = PRI_MAX + 1;
@@ -150,10 +160,6 @@ void schedule()
     if (taskp->state & STATE_RUNNING)
         taskp->state = STATE_READY;
 
-    /*
-     * this routine selects the next running task from ready state tasks.
-     * Scheduling algorithm is priority based round robin.
-     */
     do {
         if ((p->state & STATE_READY) && p->pri < pri) {
             pri = p->pri;
@@ -166,8 +172,10 @@ void schedule()
     if (n == NULL)
         return; /* ERROR: no task is available */
 
-    taskp = n;
-    taskp->state = STATE_RUNNING;
+    taskp_next = n;
+    taskp_next->state = STATE_RUNNING;
+
+    pend_sv();
 }
 
 int sys_debug(const char *s)
@@ -229,8 +237,7 @@ int sys_activate_task(int task_id)
 {
     int ret = isys_activate_task(task_id);
 
-    /* necessary to reschedule */
-    pend_sv();
+    schedule();
 
     return ret;
 }
@@ -239,8 +246,7 @@ int sys_terminate_task(void)
 {
     taskp->state = STATE_FREE;
 
-    /* necessary to reschedule */
-    pend_sv();
+    schedule();
 
     return 0;
 }
@@ -270,8 +276,7 @@ int sys_get_resource(uint32_t res_id)
         taskp->state = STATE_WAITING;
     }
 
-    /* necessary to reschedule */
-    pend_sv();
+    schedule();
 
     return 0;
 }
@@ -314,8 +319,7 @@ int sys_release_resource(uint32_t res_id)
         task[task_id].state = STATE_READY;
     }
 
-    /* necessary to reschedule */
-    pend_sv();
+    schedule();
 
     return 0;
 }
@@ -328,8 +332,7 @@ int sys_set_event(int task_id, uint32_t event)
             task[task_id].ev_wait = 0;
             task[task_id].state = STATE_READY;
 
-            /* necessary to reschedule */
-            pend_sv();
+            schedule();
         }
     }
 
@@ -358,14 +361,14 @@ int sys_wait_event(uint32_t event)
     else
         taskp->state = STATE_WAITING;
 
-    /* necessary to reschedule */
-    pend_sv();
+    schedule();
 
     return 0;
 }
 
 void default_task(int ex)
 {
+    puts("[default_task]");
     while (1) ;
 }
 
@@ -399,7 +402,7 @@ void initialize_object(void)
     id = sys_declare_task(main_task, 1, 256); /* Setup main task */
     isys_activate_task(id);
 
-    taskp = &task[0];
+    taskp = taskp_next = &task[0];
 }
 
 __attribute__((naked))
