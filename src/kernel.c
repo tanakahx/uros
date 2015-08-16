@@ -97,11 +97,11 @@ void pendsv_handler()
      * If PSP is null, it means that the PendSV is executed from the kernel to dispatch default task.
      * Therefore we sould skip context saving.
      */
-    asm("mrs r0, PSP;"
-        "cmp r0, #0;"
-        "itt ne;"     /* Iff PSP is not null, we save the context. */
+    asm("mrs     r0, PSP;"
+        "cmp     r0, #0;"
+        "itt     ne;"                 /* Iff PSP is not null, we save the context. */
         "stmdbne r0!, {r4-r11};"
-        "strne r0, [%0];"
+        "strne   r0, [%0];"
         : 
         : "r" (&taskp->context)
         : "r0");
@@ -109,8 +109,9 @@ void pendsv_handler()
     taskp = taskp_next;
     
     asm("ldmia %0!, {r4-r11};"
-        "msr PSP, %0;"
-        "ldr pc, =#0xFFFFFFFD;" /* unprivileged handler mode */
+        "msr   PSP, %0;"
+        "orr   lr, #0xD;"             /* Return back to user mode (0xFFFFFFFD) */
+        "bx    lr;"
         :
         : "r" (taskp->context));
 }
@@ -127,17 +128,19 @@ void systick_handler()
 __attribute__((naked))
 void svc_handler()
 {
-    asm("mrs   r0, PSP;"
-        "ldr   r1, [r0, #4*6];"
-        "sub   r1, r1, #2;"
-        "ldrb  r1, [r1];"             /* SVC number */
-        "ldr   lr, [%0, r1, lsl #2];" /* Address of system call */
-        "push  {r0};"                 /* Save PSP on the top of main stack temporarily */
-        "ldmia r0, {r0-r3};"          /* Set up arguments to be passed to system call */
+    asm("push  {lr};"
+        "mrs   r1, PSP;"
+        "ldr   r0, [r1, #4*6];"
+        "sub   r0, r0, #2;"
+        "ldrb  r0, [r0];"             /* SVC number */
+        "ldr   lr, [%0, r0, lsl #2];" /* Address of system call */
+        "push  {r1};"                 /* Save PSP on the top of main stack temporarily */
+        "ldmia r1, {r0-r3};"          /* Set up arguments to be passed to system call */
         "blx   lr;"                   /* Call system call */
-        "pop   {r1};"                 /* Restore PSP and then on the top of the process stack frame, */
+        "pop   {lr, r1};"             /* Restore PSP and then on the top of the process stack frame, */
         "str   r0, [r1];"             /* write the value from system call to return it back to the calling task. */
-        "ldr   pc, =#0xFFFFFFFD;"
+        "orr   lr, #0xD;"             /* Return back to user mode (0xFFFFFFFD) */
+        "bx    lr;"
         :
         : "r"(syscall_table)
         : "r0", "r1");
