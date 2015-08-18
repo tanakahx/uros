@@ -78,4 +78,28 @@ The *wait* event is set to the calling task and the task is moved to WAIT state 
 
 ### Alerms
 
-N/A
+Alarm objects manage time expiration. If it expires, it activates a task, set event to a task or executes call back routine. Each alarm is tied up a counter object which counts system timer ticks.
+
+#### get_alarm_base(*alarm_id*, *alarm_base*)
+
+Return the alarm *alarm_id* information into *alarm_base*. *Alarm_base* contains *maxallowedvalue*, *ticksperbase*, *mincycle*.
+
+* *maxallowedvalue* defines the maximum allowed counter value.
+* *ticksperbase* defines the number of ticks required to reach a counter specific unit.
+* *mincycle* defines the minimum allowed counter value for the cycle-parameter.
+
+#### get_alarm(*alarm_id*)
+
+Return the relative value in ticks since previous expiration occured.
+
+#### set_rel_alarm(*alarm_id*, *increment*, *cycle*)
+
+Set the relative alarm which expires after *increment* and every *cycle* count.
+
+#### set_abs_alarm(*alarm_id*, *start*, *cycle*)
+
+Set the absolute alarm which expires at *start* and every *cycle* count.
+
+#### cancel_alarm(*alarm_id*)
+
+Stop alarm *alarm_id*.
