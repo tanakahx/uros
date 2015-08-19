@@ -164,9 +164,7 @@ void systick_handler()
                 continue;
 
             if (alarmp->counterp->value == alarmp->next_count) {
-                if (alarmp->type == ALARM_TYPE_REL)
-                    alarmp->next_count += alarmp->cycle; /* This result can be overflow. */
-
+                alarmp->next_count += alarmp->cycle; /* This result can be overflow. */
                 alarmp->last_count = alarmp->counterp->value;
                 alarmp->expired = TRUE;
 
