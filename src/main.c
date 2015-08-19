@@ -1,8 +1,7 @@
 #include "uros.h"
 #include "uart.h"
 
-int id[5];
-alarm_t alarm;
+task_type_t id[5];
 
 void sub_task0(int ex)
 {
@@ -65,7 +64,7 @@ void sub_task3(int ex)
             puts("[sub_task3]: wake up by sub_task2");
         else
             puts("[sub_task3]: wake up by unknown");
-        clear_event(id[4], -1);
+        clear_event(-1);
     }
 }
 
@@ -96,9 +95,6 @@ void main_task(int ex)
     cancel_alarm(0);
     cancel_alarm(1);
     cancel_alarm(2);
-
-    /* Create resources */
-    res[0].pri = 0;
 
     /* Start them */
     activate_task(id[1]);

@@ -99,7 +99,7 @@ void printf(char *fmt, ...)
 {
     char **argp = &fmt + 1;
     char *p;
-    
+
     for (p = fmt; *p; p++) {
         if (*p == '%') {
             switch (*++p) {
