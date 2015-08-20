@@ -42,22 +42,22 @@ void initialize_system(void)
     extern uint32_t rodata_end;
     extern uint32_t data_start;
     extern uint32_t data_end;
-    
+
     /* Disable all interrupts until initialization is completed. */
     disable_interrupt();
 
     /* Clear PSP register */
     set_psp(0);
-    
+
     /* Clear SRAM area with zero (bss section is cleared here) */
     memset((void *)LOAD_ADDR, 0, SRAM_SIZE);
-    
+
     /* Copy .data section into SRAM area */
     memcpy((void *)LOAD_ADDR, (void *)&rodata_end, (void *)&data_end - (void *)&data_start);
-    
+
     /* Priority level less than or equal to 0 is allowed when interrupt is enabled. */
     set_basepri(0);
-    
+
     /* Set priority group to 0 */
     AIRCR = 0x05FA0000;
 
@@ -69,7 +69,7 @@ void initialize_system(void)
     /* Copy vector table from ROM to RAM */
     memcpy((void *)VECTOR_ADDR, (void *)0, VECTOR_SIZE);
     VTOR = VECTOR_ADDR;
-    
+
     /* TODO: Enable external IRQ */
 
 

@@ -3,7 +3,6 @@
 #include "uart.h"
 
 static void reset_handler(void);
-static void default_handler(void);
 extern void svc_handler(void);
 extern void systick_handler(void);
 extern void pendsv_handler(void);
@@ -42,13 +41,6 @@ void reset_handler(void)
 
     /* Let's get started. */
     uros_main();
-}
-
-void default_handler(void)
-{
-    /* temporal use of UART for debug */
-    puts("[default_handler] Unhandled exception occured!");
-    while (1) continue;
 }
 
 void nmi_handler(void)

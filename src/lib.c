@@ -1,5 +1,6 @@
 #include "uros.h"
 
+#define HEAP_SIZE 4096
 #define HEAP_UNIT_SIZE sizeof(cell_t)
 
 typedef struct cell {
@@ -96,7 +97,7 @@ void mem_free(void *addr)
             break;
         }
     }
-    
+
     /* compaction t and the next cell */
     if (t + t->size == p->next) {
         t->size += p->next->size;
