@@ -104,7 +104,7 @@ void main_task(int ex)
     activate_task(id[4]);
 
     puts("[main_task]: done");
-    terminate_task();
+    chain_task(id[1]); /* don't return here */
 }
 
 int main()
