@@ -22,6 +22,7 @@ typedef struct wque {
 typedef struct {
     uint32_t owner;
     int      pri;
+    int      pre_pri;
     wque_t   wque;
 } res_t;
 
@@ -33,7 +34,6 @@ typedef struct task {
     uint32_t     *stack_bottom;
     size_t       stack_size;
     int          pri;
-    int          pre_pri;
     uint32_t     ev_wait;
     uint32_t     ev_flag;
     wque_t       wque;
@@ -72,6 +72,8 @@ extern void main(void);
 extern task_type_t id[];
 extern res_t res[];
 
+#define CHECK_ID(id, limit) if (id >= limit) return E_OS_ID
+
 #define SYS_CALL_STUB(svc, name, ...) status_type_t name(__VA_ARGS__) { \
         int ret;                                                        \
         asm volatile ("svc %1;"                                         \
@@ -86,26 +88,33 @@ extern res_t res[];
 SYS_CALL_STUB( 0, debug, const char *s);
 SYS_CALL_STUB( 1, declare_task, thread_t entry, int pri, size_t stack_size);
 SYS_CALL_STUB( 2, activate_task, task_type_t task_id);
-SYS_CALL_STUB( 3, terminate_task);
-SYS_CALL_STUB( 4, get_resource, uint32_t res_id);
-SYS_CALL_STUB( 5, release_resource, uint32_t res_id);
-SYS_CALL_STUB( 6, set_event, task_type_t task_id, event_mask_type_t event);
-SYS_CALL_STUB( 7, clear_event, event_mask_type_t event);
-SYS_CALL_STUB( 8, get_event, task_type_t task_id, event_mask_type_t *event);
-SYS_CALL_STUB( 9, wait_event, event_mask_type_t event);
-SYS_CALL_STUB(10, get_alarm_base, uint32_t alarm_id, alarm_base_t *alarm_base);
-SYS_CALL_STUB(11, get_alarm, uint32_t alarm_id, tick_t *tick);
-SYS_CALL_STUB(12, set_rel_alarm, uint32_t alarm_id, tick_t increment, tick_t cycle);
-SYS_CALL_STUB(13, set_abs_alarm, uint32_t alarm_id, tick_t start, tick_t cycle);
-SYS_CALL_STUB(14, cancel_alarm, uint32_t alarm_id);
+SYS_CALL_STUB( 3, terminate_task, void);
+SYS_CALL_STUB( 4, chain_task, task_type_t task_id);
+SYS_CALL_STUB( 5, get_task_id, task_type_t *task_id);
+SYS_CALL_STUB( 6, get_task_state, task_type_t task_id, task_state_t *task_state);
+SYS_CALL_STUB( 7, get_resource, uint32_t res_id);
+SYS_CALL_STUB( 8, release_resource, uint32_t res_id);
+SYS_CALL_STUB( 9, set_event, task_type_t task_id, event_mask_type_t event);
+SYS_CALL_STUB(10, clear_event, event_mask_type_t event);
+SYS_CALL_STUB(11, get_event, task_type_t task_id, event_mask_type_t *event);
+SYS_CALL_STUB(12, wait_event, event_mask_type_t event);
+SYS_CALL_STUB(13, get_alarm_base, uint32_t alarm_id, alarm_base_t *alarm_base);
+SYS_CALL_STUB(14, get_alarm, uint32_t alarm_id, tick_t *tick);
+SYS_CALL_STUB(15, set_rel_alarm, uint32_t alarm_id, tick_t increment, tick_t cycle);
+SYS_CALL_STUB(16, set_abs_alarm, uint32_t alarm_id, tick_t start, tick_t cycle);
+SYS_CALL_STUB(17, cancel_alarm, uint32_t alarm_id);
 
 static void schedule();
+static void wake_up(res_t *rp);
 
 const sys_call_t syscall_table[] = {
     (sys_call_t)sys_debug,
     (sys_call_t)sys_declare_task,
     (sys_call_t)sys_activate_task,
     (sys_call_t)sys_terminate_task,
+    (sys_call_t)sys_chain_task,
+    (sys_call_t)sys_get_task_id,
+    (sys_call_t)sys_get_task_state,
     (sys_call_t)sys_get_resource,
     (sys_call_t)sys_release_resource,
     (sys_call_t)sys_set_event,
@@ -311,15 +320,9 @@ status_type_t sys_declare_task(thread_t entry, int pri, size_t stack_size)
     return tp->id;
 }
 
-status_type_t sys_activate_task(task_type_t task_id)
+status_type_t activate(task_t *tp) 
 {
-    task_t *tp;
     uint32_t *sp;
-
-    if (task_id >= NR_TASK)
-        return E_OS_ID;
-
-    tp = &task[task_id];
 
     /* CRITICAL SECTION: BEGIN */
     disable_interrupt();
@@ -340,19 +343,100 @@ status_type_t sys_activate_task(task_type_t task_id)
     sp[14] = (uint32_t)tp->entry; /* Return address */
     tp->context = (context_t)sp;
 
+    return E_OK;
+}
+
+status_type_t sys_activate_task(task_type_t task_id)
+{
+    task_t *tp;
+
+    CHECK_ID(task_id, NR_TASK);
+
+    tp = &task[task_id];
+
+    activate(tp);
+
     schedule();
 
     return E_OK;
 }
 
-status_type_t sys_terminate_task(void)
+void terminate(task_t *tp)
 {
+    int i;
+    res_t *rp;
+
     taskp->state = TASK_STATE_FREE;
+
+    /* Clear event */
     taskp->ev_wait = 0;
     taskp->ev_flag = 0;
-    // TODO: Release resources if it is allocating.
+
+    /* Release all allocating resources */
+    /* CRITICAL SECTION: BEGIN */
+    disable_interrupt();
+
+    rp = res;
+    for (i = 0; i < NR_RES; i++, rp++) {
+        if (rp->owner == taskp->id) {
+            rp->owner = 0;
+            /* Wake up another task if it is waiting for this resoure */
+            wake_up(rp);
+        }
+    }
+
+    enable_interrupt();
+    /* CRITICAL SECTION: END */
+}
+
+status_type_t sys_terminate_task(void)
+{
+    terminate(taskp);
 
     schedule();
+
+    return E_OK;
+}
+
+status_type_t sys_chain_task(task_type_t task_id)
+{
+    task_t *tp;
+    status_type_t status = E_OK;
+
+    CHECK_ID(task_id, NR_TASK);
+
+    tp = &task[task_id];
+
+    /* CRITICAL SECTION: BEGIN */
+    disable_interrupt();
+
+    if (tp->state != TASK_STATE_FREE && tp->state != TASK_STATE_SUSPENDED)
+        status = E_OS_LIMIT;
+    else {
+        terminate(taskp);
+        activate(tp);
+    }
+
+    enable_interrupt();
+    /* CRITICAL SECTION: END */
+
+    schedule();
+
+    return status;
+}
+
+status_type_t sys_get_task_id(task_type_t *task_id)
+{
+    *task_id = taskp->id;
+
+    return E_OK;
+}
+
+status_type_t sys_get_task_state(task_type_t task_id, task_state_t *task_state)
+{
+    CHECK_ID(task_id, NR_TASK);
+
+    *task_state = task[task_id].state;
 
     return E_OK;
 }
@@ -363,8 +447,7 @@ status_type_t sys_get_resource(uint32_t res_id)
     res_t *rp;
     wque_t *wp;
 
-    if (res_id >= NR_RES)
-        return E_OS_ID;
+    CHECK_ID(res_id, NR_RES);
 
     rp = &res[res_id];
 
@@ -396,8 +479,8 @@ status_type_t sys_get_resource(uint32_t res_id)
 
     if (status == E_OK) {
         /* Raise priority to the resource priority (priority ceiling protocol) */
-        taskp->pre_pri = taskp->pri;
-        taskp->pri = rp->pri;
+        rp->pre_pri = taskp->pri;
+        taskp->pri  = rp->pri;
     }
 
     schedule();
@@ -405,36 +488,22 @@ status_type_t sys_get_resource(uint32_t res_id)
     return status;
 }
 
-status_type_t sys_release_resource(uint32_t res_id)
+static bool_t task_waiting_for(res_t *rp)
 {
-    status_type_t status = E_OK;
-    task_type_t task_id;
-    task_t *tp;
-    res_t *rp;
+    return rp->wque.next != &rp->wque;
+}
+
+static void wake_up(res_t *rp)
+{
     wque_t *wp;
+    task_t *tp;
+    task_type_t task_id;
 
-    if (res_id >= NR_RES)
-        return E_OS_ID;
-
-    rp = &res[res_id];
-
-    if (rp->owner != taskp->id)
-        return E_OS_NOFUNC;
-
-    /* CRITICAL SECTION: BEGIN */
-    disable_interrupt();
-
-    /* Release resource */
-    rp->owner = 0;
-
-    /* Lower priority to the original level */
-    taskp->pri = taskp->pre_pri;
-
-    if (res[res_id].wque.prev != &res[res_id].wque) {
+    if (task_waiting_for(rp)) {
         /* Remove the head of the wait queue to place it in the READY state. */
-        wp = res[res_id].wque.prev;
-        wp->prev->next        = &res[res_id].wque;
-        res[res_id].wque.prev = wp->prev;
+        wp             = rp->wque.prev;
+        wp->prev->next = &rp->wque;
+        rp->wque.prev  = wp->prev;
         wp->next = NULL;
         wp->prev = NULL;
 
@@ -449,11 +518,36 @@ status_type_t sys_release_resource(uint32_t res_id)
         rp->owner = task_id;
 
         /* Temporarily raise priority (priority ceiling protocol) */
-        tp->pre_pri = tp->pri;
+        rp->pre_pri = tp->pri;
         tp->pri     = rp->pri;
 
         tp->state = TASK_STATE_READY;
     }
+}
+
+status_type_t sys_release_resource(uint32_t res_id)
+{
+    status_type_t status = E_OK;
+    res_t *rp;
+
+    CHECK_ID(res_id, NR_RES);
+
+    rp = &res[res_id];
+
+    if (rp->owner != taskp->id)
+        return E_OS_NOFUNC;
+
+    /* CRITICAL SECTION: BEGIN */
+    disable_interrupt();
+
+    /* Release resource */
+    rp->owner = 0;
+
+    /* Lower priority to the original level */
+    taskp->pri = rp->pre_pri;
+
+    /* Wake up another task if it is waiting for this resoure */
+    wake_up(rp);
 
     enable_interrupt();
     /* CRITICAL SECTION: END */
@@ -469,8 +563,7 @@ status_type_t sys_set_event(task_type_t task_id, event_mask_type_t event)
     task_t *tp;
     bool_t resched = FALSE;
 
-    if (task_id >= NR_TASK)
-        return E_OS_ID;
+    CHECK_ID(task_id, NR_TASK);
 
     tp = &task[task_id];
 
@@ -509,8 +602,7 @@ status_type_t sys_get_event(task_type_t task_id, event_mask_type_t *event)
     status_type_t status = E_OK;
     task_t *tp;
 
-    if (task_id >= NR_TASK)
-        return E_OS_ID;
+    CHECK_ID(task_id, NR_TASK);
 
     tp = &task[task_id];
 
@@ -556,8 +648,7 @@ status_type_t sys_get_alarm_base(uint32_t alarm_id, alarm_base_t *alarm_basep)
 {
     alarm_base_t *abp;
 
-    if (alarm_id >= NR_ALARM)
-        return E_OS_ID;
+    CHECK_ID(alarm_id, NR_ALARM);
 
     abp = alarm[alarm_id].counterp->alarm_basep;
     alarm_basep->maxallowedvalue = abp->maxallowedvalue;
@@ -579,8 +670,7 @@ status_type_t sys_get_alarm(uint32_t alarm_id, tick_t *tickp)
     tick_t tick_elapsed;
     tick_t count_elapsed;
 
-    if (alarm_id >= NR_ALARM)
-        return E_OS_ID;
+    CHECK_ID(alarm_id, NR_ALARM);
 
     if (alarm[alarm_id].state == ALARM_STATE_FREE)
         return E_OS_NOFUNC;
@@ -627,8 +717,7 @@ status_type_t sys_set_rel_alarm(uint32_t alarm_id, tick_t increment, tick_t cycl
     alarm_t *ap;
     tick_t next_count;
 
-    if (alarm_id >= NR_ALARM)
-        return E_OS_ID;
+    CHECK_ID(alarm_id, NR_ALARM);
 
     ap = &alarm[alarm_id];
 
@@ -653,8 +742,7 @@ status_type_t sys_set_abs_alarm(uint32_t alarm_id, tick_t start, tick_t cycle)
     status_type_t status = E_OK;
     alarm_t *ap;
 
-    if (alarm_id >= NR_ALARM)
-        return E_OS_ID;
+    CHECK_ID(alarm_id, NR_ALARM);
 
     ap = &alarm[alarm_id];
 
@@ -677,8 +765,7 @@ status_type_t sys_cancel_alarm(uint32_t alarm_id)
     status_type_t status;
     alarm_t *ap;
 
-    if (alarm_id >= NR_ALARM)
-        return E_OS_ID;
+    CHECK_ID(alarm_id, NR_ALARM);
 
     ap = &alarm[alarm_id];
 
