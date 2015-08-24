@@ -1,6 +1,6 @@
 #include "uros.h"
 
-#define HEAP_SIZE 4096
+#define HEAP_SIZE 4096 /* KB */
 #define HEAP_UNIT_SIZE sizeof(cell_t)
 
 typedef struct cell {

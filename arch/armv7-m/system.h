@@ -3,10 +3,12 @@
 
 #ifdef LM3S6965EVB
 #include "lm3s6965evb.h"
+#define BUILD_TARGET_ARCH "LM3S6965EVB"
 #endif
 
 #ifdef STM32F407xx
 #include "stm32f4xx.h"
+#define BUILD_TARGET_ARCH "STM32F407"
 #endif
 
 #include "stdtype.h"

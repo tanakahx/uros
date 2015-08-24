@@ -1,6 +1,6 @@
 ARCH := armv7-m
 BOARD := lm3s6965evb
-#BOARD := stm32f4
+#BOARD := stm32f407
 
 CC := arm-linux-gnueabi-gcc
 LD := arm-linux-gnueabi-ld
@@ -13,7 +13,7 @@ OBJS := src/kernel.o src/lib.o src/uart.o src/main.o
 TARGET := image
 
 all:
-	$(MAKE) $(TARGET)
+	$(MAKE) $(TARGET) && cp $(TARGET) /vagrant
 
 include arch/$(ARCH)/Makefile
 

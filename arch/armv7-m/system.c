@@ -1,6 +1,7 @@
 #include "system.h"
 #include "lib.h"
 #include "uros.h"
+#include "uart_hal.h"
 
 extern void reset_handler(void);
 extern void system_init(void);
@@ -55,7 +56,7 @@ void memory_init()
     memcpy((void *)&sram_start, (void *)&rodata_end, (void *)&data_end - (void *)&data_start);
 }
 
-void reset_handler(void)
+void Reset_Handler(void)
 {
     /* System dependent initialization */
     system_init();
@@ -86,5 +87,17 @@ void reset_handler(void)
     NVIC_CCR |= 0x200;
 
     /* Let's get started. */
+    uart_hal_send('b');
+    uart_hal_send('o');
+    uart_hal_send('o');
+    uart_hal_send('t');
+    uart_hal_send('i');
+    uart_hal_send('n');
+    uart_hal_send('g');
+    uart_hal_send('.');
+    uart_hal_send('.');
+    uart_hal_send('.');
+    uart_hal_send('\r');
+    uart_hal_send('\n');
     uros_main();
 }

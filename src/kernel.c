@@ -141,7 +141,7 @@ alarm_base_t alarm_base[NR_COUNTER] = {
 alarm_t alarm[NR_ALARM];
 
 __attribute__((naked))
-void pendsv_handler()
+void PendSV_Handler()
 {
     /*
      * Save context informations.
@@ -180,7 +180,7 @@ static tick_t elapsed_time(tick_t now, tick_t last, tick_t max_value)
     return elapse;
 }
 
-void systick_handler()
+void SysTick_Handler()
 {
     alarm_t *alarmp;
     counter_t *counterp;
@@ -227,7 +227,7 @@ void systick_handler()
 }
 
 __attribute__((naked))
-void svc_handler()
+void SVC_Handler()
 {
     asm("push  {lr};"
         "mrs   r1, PSP;"
@@ -865,6 +865,8 @@ void initialize_object(void)
 __attribute__((naked))
 void start_os(void)
 {
+    printf("Start OS (build target: %s)\n", BUILD_TARGET_ARCH); 
+
     initialize_object();
 
     /* Enable systick interrupt */
