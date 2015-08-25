@@ -1,19 +1,16 @@
 #ifndef SYSTEM_H
 #define SYSTEM_H
 
-#include "uros.h"
+#ifdef LM3S6965EVB
+#include "lm3s6965evb.h"
+#endif
 
-#define SRAM_ADDR 0x20000000
-#define SRAM_SIZE 0x00010000
-#define STACK_BTM (SRAM_ADDR + SRAM_SIZE)
+#ifdef STM32F407xx
+#include "stm32f4xx.h"
+#endif
 
-#define NR_IRQ 64
+#include "stdtype.h"
 
-#define VECTOR_ADDR SRAM_ADDR
-#define VECTOR_SIZE (4 * NR_IRQ)
-#define LOAD_ADDR   (VECTOR_ADDR + VECTOR_SIZE)
-
-#define UART0_ADDR 0x4000C000
 #define NVIC_ADDR  0xE000E000
 #define ICSR       (*(volatile uint32_t *)0xE000ED04)
 #define VTOR       (*(volatile uint32_t *)0xE000ED08)
@@ -33,6 +30,5 @@ void disable_interrupt(void);
 void enable_interrupt(void);
 void set_basepri(int val);
 void pend_sv(void);
-void initialize_system(void);
 
 #endif

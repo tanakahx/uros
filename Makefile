@@ -1,27 +1,21 @@
-CPU := cortex-m3
+ARCH := armv7-m
+BOARD := lm3s6965evb
+#BOARD := stm32f4
 
-ifeq ($(CPU), cortex-m3)
-MACHINE := lm3s6965evb
-VMA := 0x00000000
-endif
+CC := arm-linux-gnueabi-gcc
+LD := arm-linux-gnueabi-ld
+OBJCOPY := arm-linux-gnueabi-objcopy
 
-CC := arm-none-eabi-gcc
 CFLAGS = -Wall -fno-builtin -Isrc
-
-LD := ld-arm
 LDFLAGS =
-
 OBJS := src/kernel.o src/lib.o src/uart.o src/main.o
-
-include cpu/$(CPU)/Makefile
 
 TARGET := image
 
-$(TARGET): $(TARGET).elf
-	objcopy-arm -O binary $< $@
+all:
+	$(MAKE) $(TARGET)
 
-$(TARGET).elf: $(OBJS)
-	$(LD) -o $@ $(LDFLAGS) $^
+include arch/$(ARCH)/Makefile
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -29,11 +23,20 @@ $(TARGET).elf: $(OBJS)
 %.o: %.S
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-.PHONY: dis run clean
+$(TARGET).elf: $(OBJS)
+	$(LD) -o $@ $(LDFLAGS) $^
+
+$(TARGET): $(TARGET).elf
+	$(OBJCOPY) -O binary $< $@
+
+.PHONY: clean
 
 run:
-	qemu-system-arm -M $(MACHINE) -nographic -kernel $(TARGET)
+	qemu-system-arm -M $(BOARD) -nographic -kernel $(TARGET)
+
+serial:
+	cu -s 115200 -l /dev/ttyUSB0
 
 clean:
-	-@$(foreach obj, */*/*.o */*.o, rm $(obj);)
+	-@$(foreach obj, */*/*/*.o */*/*.o */*.o, rm $(obj);)
 	-rm $(TARGET) $(TARGET).elf

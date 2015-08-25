@@ -1,16 +1,14 @@
 MEMORY
 {
-        vector (r)  : ORIGIN = 0x00000000, LENGTH = 0x400
-        flash (rx)  : ORIGIN = 0x00000404, LENGTH = 0x3FF00
+        flash (rx)  : ORIGIN = 0x00000000, LENGTH = 0x40000
         sram (rwx)  : ORIGIN = 0x20000000, LENGTH = 64K
-        load (rwx)  : ORIGIN = 0x20000100, LENGTH = 0xFF00
         stack (rwx) : ORIGIN = 0x20010000, LENGTH = 0K
 }
 
 SECTIONS {
          .vector : {
-                 cpu/cortex-m3/vector.o (.rodata*)
-         } > vector
+                 arch/armv7-m/lm3s6965evb/vector.o (.rodata*)
+         } > flash
 
          .text : {
                * (.text)
@@ -26,5 +24,9 @@ SECTIONS {
                data_start = .;
                * (.data)
                data_end = .;
-         } > load AT > flash
+         } > sram AT > flash
 }
+
+stack_bottom = ORIGIN(stack);
+sram_start   = ORIGIN(sram);
+sram_end     = ORIGIN(sram) + LENGTH(sram);

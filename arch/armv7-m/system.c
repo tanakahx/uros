@@ -1,6 +1,9 @@
 #include "system.h"
-#include "uros.h"
 #include "lib.h"
+#include "uros.h"
+
+extern void reset_handler(void);
+extern void system_init(void);
 
 __attribute__((naked))
 void disable_interrupt(void)
@@ -37,23 +40,33 @@ void pend_sv(void)
     ICSR |= (1<<28);
 }
 
-void initialize_system(void)
+void memory_init()
 {
-    extern uint32_t rodata_end;
-    extern uint32_t data_start;
-    extern uint32_t data_end;
+    extern unsigned int rodata_end;
+    extern unsigned int data_start;
+    extern unsigned int data_end;
+    extern unsigned int sram_start;
+    extern unsigned int sram_end;
+
+    /* Clear SRAM area with zero (bss section is cleared here) */
+    memset((void *)&sram_start, 0, &sram_end - &sram_start);
+
+    /* Copy .data section into SRAM area */
+    memcpy((void *)&sram_start, (void *)&rodata_end, (void *)&data_end - (void *)&data_start);
+}
+
+void reset_handler(void)
+{
+    /* System dependent initialization */
+    system_init();
 
     /* Disable all interrupts until initialization is completed. */
     disable_interrupt();
 
+    memory_init();
+
     /* Clear PSP register */
     set_psp(0);
-
-    /* Clear SRAM area with zero (bss section is cleared here) */
-    memset((void *)LOAD_ADDR, 0, SRAM_SIZE);
-
-    /* Copy .data section into SRAM area */
-    memcpy((void *)LOAD_ADDR, (void *)&rodata_end, (void *)&data_end - (void *)&data_start);
 
     /* Priority level less than or equal to 0 is allowed when interrupt is enabled. */
     set_basepri(0);
@@ -66,13 +79,12 @@ void initialize_system(void)
     SHPR2 = 0x00000000;
     SHPR3 = 0x01010000;
 
-    /* Copy vector table from ROM to RAM */
-    memcpy((void *)VECTOR_ADDR, (void *)0, VECTOR_SIZE);
-    VTOR = VECTOR_ADDR;
-
     /* TODO: Enable external IRQ */
 
 
     /* Enable double word stack alignment */
     NVIC_CCR |= 0x200;
+
+    /* Let's get started. */
+    uros_main();
 }

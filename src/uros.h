@@ -1,12 +1,7 @@
 #ifndef UROS_H
 #define UROS_H
 
-#define NULL (void *)0
-
-typedef unsigned long  size_t;
-typedef unsigned char  uint8_t;
-typedef unsigned short uint16_t;
-typedef unsigned int   uint32_t;
+#include "stdtype.h"
 
 typedef unsigned int task_type_t;
 typedef unsigned int context_t;
@@ -15,11 +10,6 @@ typedef unsigned int event_mask_type_t;
 
 typedef unsigned long tick_t;
 #define TICK_MAX ((tick_t)-1)
-
-typedef enum {
-    FALSE,
-    TRUE,
-} bool_t;
 
 typedef enum {
     E_OK          = 0,

@@ -1,21 +1,8 @@
-#include "uros.h"
-#include "uart.h"
-
-struct uart_t {
-    uint32_t UARTDR;
-    uint32_t UARTRSR;
-    uint32_t dummy[4];
-    uint32_t UARTFR;
-};
-
-struct uart_t *p_uart = (struct uart_t *)UART0_ADDR;
-
-#define UART0_UARTDR p_uart->UARTDR
-#define UART0_UARTFR p_uart->UARTFR
+#include "uart_hal.h"
 
 void putc(char c)
 {
-    UART0_UARTDR = c;
+    uart_hal_send(c);
 }
 
 void putchar(char c)
@@ -68,9 +55,11 @@ void puthex_n(unsigned int n, int column)
 
 char getc()
 {
-    while ((UART0_UARTFR & 0x10) != 0)
-        ;
-    return UART0_UARTDR;
+    char c;
+
+    uart_hal_recv(&c);
+
+    return c;
 }
 
 char getchar()
