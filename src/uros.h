@@ -3,6 +3,10 @@
 
 #include "stdtype.h"
 
+#define PRI_MAX    255
+#define USER_TASK_STACK_SIZE    2048
+#define DEFAULT_TASK_STACK_SIZE 64
+
 typedef unsigned int task_type_t;
 typedef unsigned int context_t;
 
@@ -28,11 +32,10 @@ typedef void (*thread_t)(int);
 typedef void (*callback_t)(void);
 
 typedef enum {
-    TASK_STATE_FREE      = 1,
-    TASK_STATE_SUSPENDED = 2,
-    TASK_STATE_READY     = 4,
-    TASK_STATE_RUNNING   = 8,
-    TASK_STATE_WAITING   = 16,
+    TASK_STATE_SUSPENDED = 1,
+    TASK_STATE_READY     = 2,
+    TASK_STATE_RUNNING   = 4,
+    TASK_STATE_WAITING   = 8,
 } task_state_t;
 
 typedef enum {
@@ -56,6 +59,29 @@ typedef struct {
     tick_t ticksperbase;
     tick_t mincycle;
 } alarm_base_t;
+
+typedef struct task_rom {
+    void     *entry;
+    int      pri;
+    uint32_t *stack_bottom;
+    bool_t   autostart;
+} task_rom_t;
+
+typedef struct res_rom {
+    int pri;
+} res_rom_t;
+
+typedef struct {
+    action_type_t action_type;
+    union {
+        struct {
+            int task_id;
+            event_mask_type_t event;
+        } setevent;
+        int task_id;
+        callback_t callback;
+    } action;
+} alarm_action_rom_t;
 
 status_type_t debug(const char *s);
 status_type_t declare_task(thread_t entry, int pri, size_t stack_size);

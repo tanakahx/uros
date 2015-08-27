@@ -4,13 +4,7 @@
 #include "lib.h"
 #include "config.h"
 
-#define NR_TASK    16
-#define NR_RES     8
 #define NR_COUNTER 1
-#define NR_ALARM   3
-#define PRI_MAX    255
-
-#define DEFAULT_TASK_STACK_SIZE 64
 
 /* Wait queue */
 typedef struct wque {
@@ -21,18 +15,13 @@ typedef struct wque {
 /* Resource Type */
 typedef struct {
     uint32_t owner;
-    int      pri;
     int      pre_pri;
     wque_t   wque;
 } res_t;
 
 /* Task Control Block (TCB) */
 typedef struct task {
-    task_type_t  id;
     task_state_t state;
-    void         *entry;
-    uint32_t     *stack_bottom;
-    size_t       stack_size;
     int          pri;
     uint32_t     ev_wait;
     uint32_t     ev_flag;
@@ -45,7 +34,7 @@ typedef struct {
     tick_t       value;
     tick_t       next_tick;
     tick_t       last_tick;
-    alarm_base_t *alarm_basep;
+    const alarm_base_t *alarm_basep;
 } counter_t;
 
 /* Alarm Type */
@@ -56,21 +45,10 @@ typedef struct {
     tick_t        last_count;
     tick_t        cycle;
     bool_t        expired;
-    action_type_t action_type;
-    union {
-        int task_id;
-        struct {
-            int      task_id;
-            event_mask_type_t event;
-        } setevent;
-        callback_t callback;
-    } action;
     counter_t     *counterp;
 } alarm_t;
 
 extern void main(void);
-extern task_type_t id[];
-extern res_t res[];
 
 #define CHECK_ID(id, limit) if (id >= limit) return E_OS_ID
 
@@ -128,17 +106,19 @@ const sys_call_t syscall_table[] = {
     (sys_call_t)sys_cancel_alarm,
 };
 
-task_t task[NR_TASK];
-task_t *taskp      = NULL;
-task_t *taskp_next = NULL;
-res_t res[NR_RES];
 uint32_t default_task_stack[DEFAULT_TASK_STACK_SIZE];
-tick_t systick;
+uint32_t user_task_stack[USER_TASK_STACK_SIZE];
+task_t task[NR_TASK];
+res_t res[NR_RES];
 counter_t counter[NR_COUNTER];
-alarm_base_t alarm_base[NR_COUNTER] = {
+alarm_t alarm[NR_ALARM];
+const alarm_base_t alarm_base[NR_COUNTER] = {
     {TICK_MAX, 10, 1,}, /* maxallowedvalue, ticksperbase, mincycle */
 };
-alarm_t alarm[NR_ALARM];
+
+task_t *taskp      = NULL;
+task_t *taskp_next = NULL;
+tick_t systick;
 
 __attribute__((naked))
 void PendSV_Handler()
@@ -183,6 +163,7 @@ static tick_t elapsed_time(tick_t now, tick_t last, tick_t max_value)
 void SysTick_Handler()
 {
     alarm_t *alarmp;
+    const alarm_action_rom_t *action_romp;
     counter_t *counterp;
     bool_t single_alarm;
 
@@ -198,15 +179,17 @@ void SysTick_Handler()
                 alarmp->last_count = alarmp->counterp->value;
                 alarmp->expired = TRUE;
 
-                switch (alarmp->action_type) {
+                action_romp = alarm_action_rom + (alarmp - alarm);
+
+                switch (action_romp->action_type) {
                 case ACTION_TYPE_ACTIVATETASK:
-                    sys_activate_task(alarmp->action.task_id);
+                    sys_activate_task(action_romp->action.task_id);
                     break;
                 case ACTION_TYPE_SETEVENT:
-                    sys_set_event(alarmp->action.setevent.task_id, alarmp->action.setevent.event);
+                    sys_set_event(action_romp->action.setevent.task_id, action_romp->action.setevent.event);
                     break;
                 case ACTION_TYPE_ALARMCALLBACK:
-                    alarmp->action.callback();
+                    action_romp->action.callback();
                     break;
                 }
             }
@@ -258,7 +241,7 @@ void schedule()
      * and the operation on the data structure like a linked list do not exist.
      */
 
-    task_t *p = taskp + 1;
+    task_t *p = taskp;
     task_t *n = NULL;
     int pri = PRI_MAX + 1;
 
@@ -266,13 +249,13 @@ void schedule()
         taskp->state = TASK_STATE_READY;
 
     do {
+        if (++p == task + NR_TASK)
+            p = task;
         if ((p->state & TASK_STATE_READY) && p->pri < pri) {
             pri = p->pri;
             n = p;
         }
-        if (++p == task + NR_TASK)
-            p = task;
-    } while (p != taskp + 1);
+    } while (p != taskp);
 
     if (n == NULL)
         return; /* ERROR: no task is available */
@@ -291,70 +274,53 @@ status_type_t sys_debug(const char *s)
 
 status_type_t sys_declare_task(thread_t entry, int pri, size_t stack_size)
 {
-    task_t *p;
-    task_t *tp = NULL;
-    uint32_t *stack_bottom;
-
-    /* Search a free task */
-    for (p = task; p < task + NR_TASK; p++) {
-        if (p->state & TASK_STATE_FREE) {
-            tp = p;
-            break;
-        }
-    }
-    if (tp == NULL)
-        return -1; /* ERROR: tasks are full */
-
-    /* Allocate new stack */
-    stack_bottom = (uint32_t *)mem_alloc(sizeof(uint32_t) * stack_size);
-    if (stack_bottom == NULL)
-        return -1; /* ERROR: stack allocation error */
-    tp->stack_bottom = stack_bottom;
-    tp->stack_size   = stack_size;
-
-    tp->id    = tp - task;
-    tp->state = TASK_STATE_SUSPENDED;
-    tp->entry = entry;
-    tp->pri   = pri;
-
-    return tp->id;
+    return 0;
 }
 
 status_type_t activate(task_t *tp) 
 {
+    status_type_t status = E_OK;
     uint32_t *sp;
+    const task_rom_t *task_romp = task_rom + (tp - task);
 
     /* CRITICAL SECTION: BEGIN */
     disable_interrupt();
 
     if (tp->state & (TASK_STATE_RUNNING | TASK_STATE_READY | TASK_STATE_WAITING))
-        return E_OS_LIMIT;
+        status = E_OS_LIMIT;
+    else {
+        tp->state = TASK_STATE_READY;
+        tp->pri   = task_romp->pri;
 
-    tp->state = TASK_STATE_READY;
+        sp = task_romp->stack_bottom - 16;
+        /* Initialize stack frame necessary for starting in user mode */
+#ifdef DEBUG
+        memset(sp, 0xBBCCDDEE, sizeof(uint32_t) * 16);
+#endif
+        sp[15] = 0x01000000;          /* xPSR */
+        sp[14] = (uint32_t)task_romp->entry;
+        tp->context = (context_t)sp;
+    }
 
     enable_interrupt();
     /* CRITICAL SECTION: END */
 
-    sp = tp->stack_bottom + tp->stack_size - 16;
-
-    /* Initialize stack frame necessary for starting in user mode */
-    memset(sp, 0, sizeof(uint32_t) * 16);
-    sp[15] = 0x01000000;          /* xPSR */
-    sp[14] = (uint32_t)tp->entry; /* Return address */
-    tp->context = (context_t)sp;
-
-    return E_OK;
+    return status;
 }
 
 status_type_t sys_activate_task(task_type_t task_id)
 {
+    status_type_t status = E_OK;
     task_t *tp;
 
     CHECK_ID(task_id, NR_TASK);
 
     tp = &task[task_id];
 
-    activate(tp);
+    status = activate(tp);
+
+    if (status != E_OK)
+        return status;
 
     schedule();
 
@@ -365,8 +331,9 @@ void terminate(task_t *tp)
 {
     int i;
     res_t *rp;
+    task_type_t task_id = taskp - task;
 
-    taskp->state = TASK_STATE_FREE;
+    taskp->state = TASK_STATE_SUSPENDED;
 
     /* Clear event */
     taskp->ev_wait = 0;
@@ -378,7 +345,7 @@ void terminate(task_t *tp)
 
     rp = res;
     for (i = 0; i < NR_RES; i++, rp++) {
-        if (rp->owner == taskp->id) {
+        if (rp->owner == task_id) {
             rp->owner = 0;
             /* Wake up another task if it is waiting for this resoure */
             wake_up(rp);
@@ -410,7 +377,7 @@ status_type_t sys_chain_task(task_type_t task_id)
     /* CRITICAL SECTION: BEGIN */
     disable_interrupt();
 
-    if (tp->state != TASK_STATE_FREE && tp->state != TASK_STATE_SUSPENDED)
+    if (tp->state != TASK_STATE_SUSPENDED)
         status = E_OS_LIMIT;
     else {
         terminate(taskp);
@@ -427,7 +394,7 @@ status_type_t sys_chain_task(task_type_t task_id)
 
 status_type_t sys_get_task_id(task_type_t *task_id)
 {
-    *task_id = taskp->id;
+    *task_id = taskp - task;
 
     return E_OK;
 }
@@ -457,7 +424,7 @@ status_type_t sys_get_resource(uint32_t res_id)
     if (!rp->owner) {
         /* Resource is free. Allocate it for this task. */
         status = E_OK;
-        rp->owner = taskp->id;
+        rp->owner = taskp - task;
     }
     else {
         /* Resource is already allocated. Add this task into the wait queue. */
@@ -480,7 +447,7 @@ status_type_t sys_get_resource(uint32_t res_id)
     if (status == E_OK) {
         /* Raise priority to the resource priority (priority ceiling protocol) */
         rp->pre_pri = taskp->pri;
-        taskp->pri  = rp->pri;
+        taskp->pri  = res_rom[res_id].pri;
     }
 
     schedule();
@@ -498,6 +465,7 @@ static void wake_up(res_t *rp)
     wque_t *wp;
     task_t *tp;
     task_type_t task_id;
+    uint32_t res_id = rp - res;
 
     if (task_waiting_for(rp)) {
         /* Remove the head of the wait queue to place it in the READY state. */
@@ -519,7 +487,7 @@ static void wake_up(res_t *rp)
 
         /* Temporarily raise priority (priority ceiling protocol) */
         rp->pre_pri = tp->pri;
-        tp->pri     = rp->pri;
+        tp->pri     = res_rom[res_id].pri;
 
         tp->state = TASK_STATE_READY;
     }
@@ -529,12 +497,13 @@ status_type_t sys_release_resource(uint32_t res_id)
 {
     status_type_t status = E_OK;
     res_t *rp;
+    task_type_t task_id = taskp - task;
 
     CHECK_ID(res_id, NR_RES);
 
     rp = &res[res_id];
 
-    if (rp->owner != taskp->id)
+    if (rp->owner != task_id)
         return E_OS_NOFUNC;
 
     /* CRITICAL SECTION: BEGIN */
@@ -646,7 +615,7 @@ status_type_t sys_wait_event(event_mask_type_t event)
 
 status_type_t sys_get_alarm_base(uint32_t alarm_id, alarm_base_t *alarm_basep)
 {
-    alarm_base_t *abp;
+    const alarm_base_t *abp;
 
     CHECK_ID(alarm_id, NR_ALARM);
 
@@ -662,7 +631,7 @@ status_type_t sys_get_alarm(uint32_t alarm_id, tick_t *tickp)
 {
     alarm_t *ap;
     counter_t *cp;
-    alarm_base_t *abp;
+    const alarm_base_t *abp;
     tick_t count;
     tick_t last_count;
     tick_t tick;
@@ -796,37 +765,27 @@ void initialize_object(void)
 {
     int i;
 
-    for (i = 0; i < NR_TASK; i++) 
-        task[i].state = TASK_STATE_FREE;
+    /* 
+     * Set up default task.
+     */
+    task[0].state        = TASK_STATE_RUNNING;
+    task[0].pri          = task_rom[0].pri;
+    task[0].context      = (uint32_t)(task_rom[0].stack_bottom - 16);
+    default_task_stack[DEFAULT_TASK_STACK_SIZE-1] = 0x01000000;
+    default_task_stack[DEFAULT_TASK_STACK_SIZE-2] = (uint32_t)default_task;
+
+    /* Initialize user tasks */
+    for (i = 1; i < NR_TASK; i++)
+        if (task_rom[i].autostart)
+            task[i].state = TASK_STATE_READY;
+        else
+            task[i].state = TASK_STATE_SUSPENDED;
 
     /* Wait queue */
     for (i = 0; i < NR_RES; i++) {
         res[i].wque.next = &res[i].wque;
         res[i].wque.prev = &res[i].wque;
     }
-
-    /* 
-     * Set up default task.
-     */
-    task[0].id           = 0;
-    task[0].state        = TASK_STATE_RUNNING;
-    task[0].pri          = PRI_MAX;
-    task[0].entry        = default_task;
-    task[0].stack_bottom = default_task_stack;
-    task[0].stack_size   = DEFAULT_TASK_STACK_SIZE;
-    task[0].context      = (uint32_t)&default_task_stack[DEFAULT_TASK_STACK_SIZE-16];
-    default_task_stack[DEFAULT_TASK_STACK_SIZE-1] = 0x01000000;
-    default_task_stack[DEFAULT_TASK_STACK_SIZE-2] = (uint32_t)default_task;
-
-    /* Create some tasks */
-    id[0] = sys_declare_task(main_task, 1, 256); /* Setup main task */
-    id[1] = sys_declare_task(sub_task0, 0, 256);
-    id[2] = sys_declare_task(sub_task1, 2, 256);
-    id[3] = sys_declare_task(sub_task2, 2, 256);
-    id[4] = sys_declare_task(sub_task3, 1, 256);
-
-    /* Create resources */
-    res[0].pri = 0;
 
     /* Create counter */
     counter[0].alarm_basep = &alarm_base[0];
@@ -836,27 +795,12 @@ void initialize_object(void)
         counter[i].last_tick = 0;
     }
 
-    /* Create alarm */
-    alarm[0].state           = ALARM_STATE_FREE;
-    alarm[0].expired         = FALSE;
-    alarm[0].action_type     = ACTION_TYPE_ACTIVATETASK;
-    alarm[0].action.task_id  = id[0];
-    alarm[0].counterp        = &counter[0];
-
-    alarm[1].state           = ALARM_STATE_FREE;
-    alarm[1].expired         = FALSE;
-    alarm[1].action_type     = ACTION_TYPE_SETEVENT;
-    alarm[1].action.task_id  = id[0];
-    alarm[1].action.setevent.task_id = id[0];
-    alarm[1].action.setevent.event   = 0x1 << 0;
-    alarm[1].counterp        = &counter[0];
-
-    alarm[2].state           = ALARM_STATE_FREE;
-    alarm[2].expired         = FALSE;
-    alarm[2].action_type     = ACTION_TYPE_ALARMCALLBACK;
-    alarm[2].action.task_id  = id[0];
-    alarm[2].action.callback = main_task_callback;
-    alarm[2].counterp        = &counter[0];
+    /* Initialize alarms */
+    for (i = 0; i < NR_ALARM; i++) {
+        alarm[i].state = ALARM_STATE_FREE;
+        alarm[i].expired = FALSE;
+        alarm[i].counterp = &counter[0];
+    }
 
     taskp      = &task[0];
     schedule();
