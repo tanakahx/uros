@@ -1,7 +1,6 @@
 #include "uros.h"
 #include "uart.h"
-
-task_type_t id[5];
+#include "config.h"
 
 void sub_task0(int ex)
 {
@@ -24,7 +23,7 @@ void sub_task1(int ex)
                 get_resource(0);
                 puts("[sub_task1]: set_event");
                 release_resource(0);
-                set_event(id[4], 0x1 << 0);
+                set_event(SUB_TASK3, 0x1 << 0);
             }
         }
     }
@@ -45,7 +44,7 @@ void sub_task2(int ex)
                 get_resource(0);
                 puts("[sub_task2]: set_event");
                 release_resource(0);
-                set_event(id[4], 0x1 << 1);
+                set_event(SUB_TASK3, 0x1 << 1);
             }
         }
     }
@@ -57,7 +56,7 @@ void sub_task3(int ex)
 
     while (1) {
         wait_event(0x3);
-        get_event(id[4], &ev);
+        get_event(SUB_TASK3, &ev);
         if (ev == (0x1 << 0))
             puts("[sub_task3]: wake up by sub_task1");
         else if (ev == (0x1 << 1))
@@ -97,14 +96,14 @@ void main_task(int ex)
     cancel_alarm(2);
 
     /* Start them */
-    activate_task(id[1]);
-    activate_task(id[1]); /* start again */
-    activate_task(id[2]);
-    activate_task(id[3]);
-    activate_task(id[4]);
+    activate_task(SUB_TASK0);
+    activate_task(SUB_TASK0); /* start again */
+    activate_task(SUB_TASK1);
+    activate_task(SUB_TASK2);
+    activate_task(SUB_TASK3);
 
     puts("[main_task]: done");
-    chain_task(id[1]); /* don't return here */
+    chain_task(SUB_TASK0); /* don't return here */
 }
 
 int main()

@@ -8,12 +8,12 @@ OBJCOPY := arm-linux-gnueabi-objcopy
 
 CFLAGS = -Wall -fno-builtin -Isrc
 LDFLAGS =
-OBJS := src/kernel.o src/lib.o src/uart.o src/main.o
+OBJS := src/kernel.o src/lib.o src/uart.o src/config.o src/main.o
 
 TARGET := image
 
 all:
-	$(MAKE) $(TARGET) && cp $(TARGET) /vagrant
+	$(MAKE) $(TARGET)
 
 include arch/$(ARCH)/Makefile
 
