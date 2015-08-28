@@ -84,7 +84,6 @@ typedef struct {
 } alarm_action_rom_t;
 
 status_type_t debug(const char *s);
-status_type_t declare_task(thread_t entry, int pri, size_t stack_size);
 status_type_t activate_task(task_type_t task_id);
 status_type_t terminate_task(void);
 status_type_t chain_task(task_type_t task_id);

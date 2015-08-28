@@ -6,16 +6,23 @@ CC := arm-linux-gnueabi-gcc
 LD := arm-linux-gnueabi-ld
 OBJCOPY := arm-linux-gnueabi-objcopy
 
-CFLAGS = -Wall -fno-builtin -Isrc
+CFLAGS = -Wall -fno-builtin -Isrc -Iapp
 LDFLAGS =
-OBJS := src/kernel.o src/lib.o src/uart.o src/config.o src/main.o
+OBJS := src/kernel.o src/lib.o src/uart.o app/config.o app/main.o
+
+CONFIGURATOR := util/config.lisp
+CONFIG_INFO := app/config.json
 
 TARGET := image
 
 all:
+	$(MAKE) app/config.c
 	$(MAKE) $(TARGET)
 
 include arch/$(ARCH)/Makefile
+
+app/config.c: $(CONFIG_INFO)
+	$(CONFIGURATOR) -d app $<
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -38,5 +45,6 @@ serial:
 	cu -s 115200 -l /dev/ttyUSB0
 
 clean:
-	-@$(foreach obj, */*/*/*.o */*/*.o */*.o, rm $(obj);)
+	-$(foreach obj, */*/*/*.o */*/*.o */*.o, rm $(obj);)
+	-rm app/config.c app/config.h
 	-rm $(TARGET) $(TARGET).elf

@@ -64,30 +64,28 @@ extern void main(void);
     status_type_t sys_##name(__VA_ARGS__);
 
 SYS_CALL_STUB( 0, debug, const char *s);
-SYS_CALL_STUB( 1, declare_task, thread_t entry, int pri, size_t stack_size);
-SYS_CALL_STUB( 2, activate_task, task_type_t task_id);
-SYS_CALL_STUB( 3, terminate_task, void);
-SYS_CALL_STUB( 4, chain_task, task_type_t task_id);
-SYS_CALL_STUB( 5, get_task_id, task_type_t *task_id);
-SYS_CALL_STUB( 6, get_task_state, task_type_t task_id, task_state_t *task_state);
-SYS_CALL_STUB( 7, get_resource, uint32_t res_id);
-SYS_CALL_STUB( 8, release_resource, uint32_t res_id);
-SYS_CALL_STUB( 9, set_event, task_type_t task_id, event_mask_type_t event);
-SYS_CALL_STUB(10, clear_event, event_mask_type_t event);
-SYS_CALL_STUB(11, get_event, task_type_t task_id, event_mask_type_t *event);
-SYS_CALL_STUB(12, wait_event, event_mask_type_t event);
-SYS_CALL_STUB(13, get_alarm_base, uint32_t alarm_id, alarm_base_t *alarm_base);
-SYS_CALL_STUB(14, get_alarm, uint32_t alarm_id, tick_t *tick);
-SYS_CALL_STUB(15, set_rel_alarm, uint32_t alarm_id, tick_t increment, tick_t cycle);
-SYS_CALL_STUB(16, set_abs_alarm, uint32_t alarm_id, tick_t start, tick_t cycle);
-SYS_CALL_STUB(17, cancel_alarm, uint32_t alarm_id);
+SYS_CALL_STUB( 1, activate_task, task_type_t task_id);
+SYS_CALL_STUB( 2, terminate_task, void);
+SYS_CALL_STUB( 3, chain_task, task_type_t task_id);
+SYS_CALL_STUB( 4, get_task_id, task_type_t *task_id);
+SYS_CALL_STUB( 5, get_task_state, task_type_t task_id, task_state_t *task_state);
+SYS_CALL_STUB( 6, get_resource, uint32_t res_id);
+SYS_CALL_STUB( 7, release_resource, uint32_t res_id);
+SYS_CALL_STUB( 8, set_event, task_type_t task_id, event_mask_type_t event);
+SYS_CALL_STUB( 9, clear_event, event_mask_type_t event);
+SYS_CALL_STUB(10, get_event, task_type_t task_id, event_mask_type_t *event);
+SYS_CALL_STUB(11, wait_event, event_mask_type_t event);
+SYS_CALL_STUB(12, get_alarm_base, uint32_t alarm_id, alarm_base_t *alarm_base);
+SYS_CALL_STUB(13, get_alarm, uint32_t alarm_id, tick_t *tick);
+SYS_CALL_STUB(14, set_rel_alarm, uint32_t alarm_id, tick_t increment, tick_t cycle);
+SYS_CALL_STUB(15, set_abs_alarm, uint32_t alarm_id, tick_t start, tick_t cycle);
+SYS_CALL_STUB(16, cancel_alarm, uint32_t alarm_id);
 
 static void schedule();
 static void wake_up(res_t *rp);
 
 const sys_call_t syscall_table[] = {
     (sys_call_t)sys_debug,
-    (sys_call_t)sys_declare_task,
     (sys_call_t)sys_activate_task,
     (sys_call_t)sys_terminate_task,
     (sys_call_t)sys_chain_task,
@@ -106,7 +104,6 @@ const sys_call_t syscall_table[] = {
     (sys_call_t)sys_cancel_alarm,
 };
 
-uint32_t default_task_stack[DEFAULT_TASK_STACK_SIZE];
 uint32_t user_task_stack[USER_TASK_STACK_SIZE];
 task_t task[NR_TASK];
 res_t res[NR_RES];
@@ -270,11 +267,6 @@ status_type_t sys_debug(const char *s)
 {
     printf("DEBUG MESSAGE: %s\n", s);
     return E_OK;
-}
-
-status_type_t sys_declare_task(thread_t entry, int pri, size_t stack_size)
-{
-    return 0;
 }
 
 status_type_t activate(task_t *tp) 
@@ -768,11 +760,11 @@ void initialize_object(void)
     /* 
      * Set up default task.
      */
-    task[0].state        = TASK_STATE_RUNNING;
-    task[0].pri          = task_rom[0].pri;
-    task[0].context      = (uint32_t)(task_rom[0].stack_bottom - 16);
-    default_task_stack[DEFAULT_TASK_STACK_SIZE-1] = 0x01000000;
-    default_task_stack[DEFAULT_TASK_STACK_SIZE-2] = (uint32_t)default_task;
+    task[0].state       = TASK_STATE_RUNNING;
+    task[0].pri         = task_rom[0].pri;
+    task[0].context     = (uint32_t)(task_rom[0].stack_bottom - 16);
+    ((uint32_t *)task[0].context)[15] = 0x01000000;
+    ((uint32_t *)task[0].context)[14] = (uint32_t)default_task;
 
     /* Initialize user tasks */
     for (i = 1; i < NR_TASK; i++)
