@@ -1,3 +1,4 @@
+#|-*- mode:lisp -*-|#
 #|
 exec ros -Q -- $0 "$@"
 |#
@@ -5,25 +6,24 @@ exec ros -Q -- $0 "$@"
 (in-package :cl-user)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (ql:quickload '(:alexandria :cl-fad :jsown) :silent t))
+  (ql:quickload '(:alexandria :jsown) :silent t))
 
 (defpackage :config
   (:use :cl)
+  (:import-from :uiop
+                :ensure-directory-pathname)
   (:import-from :alexandria
                 :iota
                 :read-file-into-string
                 :write-string-into-file)
-  (:import-from :cl-fad
-                :pathname-as-directory
-                :pathname-as-file)
   (:import-from :jsown
                 :parse))
 
 (in-package :config)
 
-(defparameter *directory* (cl-fad:pathname-as-directory "."))
-(defparameter *c-file* (cl-fad:pathname-as-file "config.c"))
-(defparameter *h-file* (cl-fad:pathname-as-file "config.h"))
+(defparameter *directory* (uiop:ensure-directory-pathname "."))
+(defparameter *c-file* "config.c")
+(defparameter *h-file* "config.h")
 (defparameter *default-task-stack-size* 256)
 
 (defun getvalue (object key)
@@ -34,11 +34,10 @@ exec ros -Q -- $0 "$@"
 
 (defun emit-define-id (objects &optional (assign #'identity))
   (let* ((names (mapcar #'cdadr objects))
-         (ids (mapcar assign (alexandria:iota (length objects))))
-         (zip (mapcar #'cons names ids)))
-    (mapc #'(lambda (pair)
-              (format t "#define ~a ~a~%" (string-upcase (car pair)) (cdr pair)))
-          zip)))
+         (ids (mapcar assign (alexandria:iota (length objects)))))
+    (mapc #'(lambda (name id)
+              (format t "#define ~a ~a~%" (string-upcase name) id))
+          names ids)))
 
 (defun emit-define (objects)
   (format t "#define NR_TASK ~a~%" (1+ (number-of "tasks" objects)))
@@ -142,13 +141,13 @@ exec ros -Q -- $0 "$@"
         (c-file *c-file*))
     (when (and (equal (car argv) "-d")
                (>= (length (cdr argv)) 1))
-      (setf directory (cl-fad:pathname-as-directory (cadr argv))
-            h-file (cl-fad:merge-pathnames-as-file directory *h-file*)
-            c-file (cl-fad:merge-pathnames-as-file directory *c-file*)
+      (setf directory (uiop:ensure-directory-pathname (cadr argv))
+            h-file (merge-pathnames *h-file* directory)
+            c-file (merge-pathnames *c-file* directory)
             argv (cddr argv)))
     (when (/= (length argv) 1)
       (exit-on-error "JSON file is not specified as an argument.~%"))
-    (let ((filename (cl-fad:pathname-as-file (car argv)))
+    (let ((filename (car argv))
           objects)
       (handler-case
           (setf objects (jsown:parse (alexandria:read-file-into-string filename)))
