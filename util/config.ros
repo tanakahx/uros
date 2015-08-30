@@ -34,25 +34,21 @@ exec ros -Q -- $0 "$@"
 
 (defun emit-define-id (objects &optional (assign #'identity))
   (let* ((names (mapcar #'cdadr objects))
-         (ids (mapcar assign (alexandria:iota (length objects)))))
-    (mapc #'(lambda (name id)
-              (format t "#define ~a ~a~%" (string-upcase name) id))
-          names ids)))
+         (ids (mapcar assign (alexandria:iota (length objects))))
+         (name-and-id (apply #'append (mapcar #'list names ids))))
+    (format t "~{#define ~:@(~a~) ~a~%~}~%" name-and-id)))
 
 (defun emit-define (objects)
   (format t "#define NR_TASK ~a~%" (1+ (number-of "tasks" objects)))
   (emit-define-id (getvalue objects "tasks"))
-  (terpri)
   (emit-define-id (getvalue objects "events") #'(lambda (n) (ash 1 n)))
-  (terpri)
   (format t "#define NR_RES ~a~%" (number-of "resources" objects))
   (emit-define-id (getvalue objects "resources"))
-  (terpri)
   (format t "#define NR_ALARM ~a~%" (number-of "alarms" objects))
   (emit-define-id (getvalue objects "alarms")))
 
 (defun emit-object-declaration (objects type id to-s)
-  (format t "const ~a ~a[] = {~%~{    {~{~a~^, ~}}~^,~%~}~%};~%"
+  (format t "const ~a ~a[] = {~%~{    {~{~a~^, ~}}~^,~%~}~%};~2%"
           type id (mapcar #'(lambda (object)
                               (funcall to-s object)) objects)))
 
@@ -80,14 +76,14 @@ exec ros -Q -- $0 "$@"
                (enum (format nil "ACTION_TYPE_~a" type)))
           (cond ((string= type "ACTIVATETASK")
                  (list enum
-                       (format nil "{{~a, ~a}}"
-                               (string-upcase (getvalue action "task"))
+                       (format nil "{{~:@(~a~), ~a}}"
+                               (getvalue action "task")
                                0)))
                 ((string= type "SETEVENT")
                  (list enum
-                       (format nil "{{~a, ~a}}"
-                               (string-upcase (getvalue action "task"))
-                               (string-upcase (getvalue action "event")))))
+                       (format nil "{{~:@(~a~), ~:@(~a~)}}"
+                               (getvalue action "task")
+                               (getvalue action "event"))))
                 ((string= type "ALARMCALLBACK")
                  (list enum
                        (format nil "{{(int)~a, ~a}}"
@@ -96,37 +92,32 @@ exec ros -Q -- $0 "$@"
 
 (defun emit-header (objects)
   (let ((macro (string-upcase (substitute #\_ #\. (file-namestring *h-file*)))))
-    (format t "#ifndef ~a~%#define ~a~%~%" macro macro)
-    (format t "#include \"uros.h\"~%~%"))
+    (format t "#ifndef ~a~%#define ~a~2%" macro macro)
+    (format t "#include \"uros.h\"~2%"))
   (emit-define objects)
-  (terpri)
   (mapc #'(lambda (task) (format t "void ~a(int ex);~%" (getvalue task "name"))) 
         (getvalue objects "tasks"))
-  (terpri)
-  (format t "void ~a(void);~%" "main_task_callback")
-  (terpri)
+  (format t "~2&void ~a(void);~2%" "main_task_callback")
   (format t "extern const task_rom_t task_rom[];~%")
   (format t "extern const res_rom_t res_rom[];~%")
   (format t "extern const alarm_action_rom_t alarm_action_rom[];~%")
-  (format t "~%#endif"))
+  (format t "~2&#endif"))
 
 (defun emit-source (objects)
-  (format t "#include \"~a\"~%~%" (file-namestring *h-file*))
-  (format t "extern uint32_t user_task_stack[];~%~%")
+  (format t "#include \"~a\"~2%" (file-namestring *h-file*))
+  (format t "extern uint32_t user_task_stack[];~2%")
   (emit-task-declaration (getvalue objects "tasks"))
-  (terpri)
   (emit-resource-declaration (getvalue objects "resources"))
-  (terpri)
   (emit-alarm-declaration (getvalue objects "alarms")))
 
 (defun exit-on-error (message)
-  (format t message)
+  (format *error-output* message)
   (uiop:quit 1))
 
 (defun insert-task (task objects)
   (labels ((rec (lst)
              (if lst
-                 (if (equal (caar lst) "tasks")
+                 (if (string= (caar lst) "tasks")
                      (cons (cons "tasks" (cons task (cdar lst)))
                            (cdr lst))
                      (cons (car lst)
@@ -139,7 +130,7 @@ exec ros -Q -- $0 "$@"
   (let ((directory *directory*)
         (h-file *h-file*)
         (c-file *c-file*))
-    (when (and (equal (car argv) "-d")
+    (when (and (string= (car argv) "-d")
                (>= (length (cdr argv)) 1))
       (setf directory (uiop:ensure-directory-pathname (cadr argv))
             h-file (merge-pathnames *h-file* directory)

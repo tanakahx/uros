@@ -10,7 +10,7 @@ CFLAGS = -Wall -fno-builtin -Isrc -Iapp
 LDFLAGS =
 OBJS := src/kernel.o src/lib.o src/uart.o app/config.o app/main.o
 
-CONFIGURATOR := util/config.lisp
+CONFIGURATOR := util/config.ros
 CONFIG_INFO := app/config.json
 
 TARGET := image
