@@ -35,7 +35,7 @@ exec ros -Q -- $0 "$@"
 (defun emit-define-id (objects &optional (assign #'identity))
   (let* ((names (mapcar #'cdadr objects))
          (ids (mapcar assign (alexandria:iota (length objects))))
-         (name-and-id (apply #'append (mapcar #'list names ids))))
+         (name-and-id (mapcan #'list names ids)))
     (format t "~{#define ~:@(~a~) ~a~%~}~%" name-and-id)))
 
 (defun emit-define (objects)
