@@ -31,6 +31,7 @@
 void disable_interrupt(void);
 void enable_interrupt(void);
 void set_basepri(int val);
+void set_psp(uint32_t *val);
 void pend_sv(void);
 
 #endif

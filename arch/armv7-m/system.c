@@ -30,7 +30,7 @@ void set_basepri(int val)
 }
 
 __attribute__((naked))
-void set_psp(int val)
+void set_psp(uint32_t *val)
 {
     asm volatile("msr PSP, r0;"
                  "bx lr;");
@@ -65,9 +65,6 @@ void Reset_Handler(void)
     disable_interrupt();
 
     memory_init();
-
-    /* Clear PSP register */
-    set_psp(0);
 
     /* Priority level less than or equal to 0 is allowed when interrupt is enabled. */
     set_basepri(0);

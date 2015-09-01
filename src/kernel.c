@@ -123,14 +123,10 @@ void PendSV_Handler()
     /*
      * Save context informations.
      * r4-r11 are saved in the user stack and PSP is saved in the TCB.
-     * If PSP is null, it means that the PendSV is executed from the kernel to dispatch default task.
-     * Therefore we sould skip context saving.
      */
-    asm("mrs     r0, PSP;"
-        "cmp     r0, #0;"
-        "itt     ne;"                 /* Iff PSP is not null, we save the context. */
-        "stmdbne r0!, {r4-r11};"
-        "strne   r0, [%0];"
+    asm("mrs   r0, PSP;"
+        "stmdb r0!, {r4-r11};"
+        "str   r0, [%0];"
         : 
         : "r" (&taskp->context)
         : "r0");
@@ -757,14 +753,15 @@ void initialize_object(void)
 {
     int i;
 
-    /* 
-     * Set up default task.
-     */
+    /* Set up default task. */
     task[0].state       = TASK_STATE_RUNNING;
     task[0].pri         = task_rom[0].pri;
     task[0].context     = (uint32_t)(task_rom[0].stack_bottom - 16);
     ((uint32_t *)task[0].context)[15] = 0x01000000;
     ((uint32_t *)task[0].context)[14] = (uint32_t)default_task;
+
+    /* Set up PSP to default task. */
+    set_psp((uint32_t *)task[0].context + 8);
 
     /* Initialize user tasks */
     for (i = 1; i < NR_TASK; i++)
