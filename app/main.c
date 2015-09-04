@@ -2,108 +2,63 @@
 #include "uart.h"
 #include "config.h"
 
-void sub_task0(int ex)
-{
-    puts("[sub_task0]");
-    terminate_task();
-}
-
 void sub_task1(int ex)
 {
-    volatile int i = 0;
-    int count = 0;
+    uint32_t ev;
 
-    while (1) {
-        if (i++ == 0x200000) {
-            get_resource(0);
-            puts("[sub_task1]");
-            release_resource(0);
-            i = 0;
-            if (++count == 3) {
-                get_resource(0);
-                puts("[sub_task1]: set_event");
-                release_resource(0);
-                set_event(SUB_TASK3, 0x1 << 0);
-            }
-        }
-    }
+    puts("[sub_task1]: start");
+    wait_event(EVENT1);
+    get_event(SUB_TASK1, &ev);
+    if (ev & EVENT1)
+        puts("[sub_task1]: wake up by main_task");
+    else
+        puts("[sub_task1]: wake up by unknown");
+    clear_event(-1);
+    puts("[sub_task1]: done");
+    terminate_task();
 }
 
 void sub_task2(int ex)
 {
-    volatile int i = 0;
-    int count = 0;
-
-    while (1) {
-        if (i++ == 0x200000) {
-            get_resource(0);
-            puts("[sub_task2]");
-            release_resource(0);
-            i = 0;
-            if (++count == 3) {
-                get_resource(0);
-                puts("[sub_task2]: set_event");
-                release_resource(0);
-                set_event(SUB_TASK3, 0x1 << 1);
-            }
-        }
-    }
+    get_resource(RESOURCE1);
+    puts("[sub_task2]: start");
+    puts("[sub_task2]: done");
+    release_resource(RESOURCE1);
+    terminate_task();
 }
-
-void sub_task3(int ex)
-{
-    uint32_t ev;
-
-    while (1) {
-        wait_event(0x3);
-        get_event(SUB_TASK3, &ev);
-        if (ev == (0x1 << 0))
-            puts("[sub_task3]: wake up by sub_task1");
-        else if (ev == (0x1 << 1))
-            puts("[sub_task3]: wake up by sub_task2");
-        else
-            puts("[sub_task3]: wake up by unknown");
-        clear_event(-1);
-    }
-}
-
-int called = 0;
 
 void main_task_callback(void)
 {
-    called = 1;
+    extern status_type_t sys_activate_task(task_type_t task_id);
+    sys_activate_task(SUB_TASK2);
 }
 
 void main_task(int ex)
 {
-    tick_t t;
+    volatile int i = 0;
+
     puts("[main_task]: start");
-    get_alarm(0, &t);
-    printf("[main_task] alarm 0 is %d tick\n", t);
-
-    puts("[main_task]: waiting alarm event");
-    wait_event(0x1);
-    get_alarm(0, &t);
-    printf("[main_task] alarm 0 is %d tick\n", t);
-
-    puts("[main_task]: waiting alarm callback");
-    while (!called) ;
-    get_alarm(0, &t);
-    printf("[main_task] alarm 0 is %d tick\n", t);
-
-    cancel_alarm(0);
-    cancel_alarm(1);
-    cancel_alarm(2);
 
     /* Start them */
-    activate_task(SUB_TASK0);
-    activate_task(SUB_TASK0); /* start again */
     activate_task(SUB_TASK1);
     activate_task(SUB_TASK2);
-    activate_task(SUB_TASK3);
 
-    puts("[main_task]: done");
-    chain_task(SUB_TASK0); /* don't return here */
+    /* Set alarm */
+    set_rel_alarm(ALARM3, 0, 100);
+
+    get_resource(RESOURCE1);
+    puts("[main_task]: set_event");
+    release_resource(RESOURCE1);
+    set_event(SUB_TASK1, EVENT1);
+
+    while (1) {
+        if (i++ == 0x80000) {
+            get_resource(RESOURCE1);
+            puts("[main_task]");
+            release_resource(RESOURCE1);
+            i = 0;
+        }
+    }
 }
 
 int main()

@@ -242,12 +242,12 @@ void schedule()
         taskp->state = TASK_STATE_READY;
 
     do {
-        if (++p == task + NR_TASK)
-            p = task;
         if ((p->state & TASK_STATE_READY) && p->pri < pri) {
             pri = p->pri;
             n = p;
         }
+        if (++p == task + NR_TASK)
+            p = task;
     } while (p != taskp);
 
     if (n == NULL)
@@ -265,19 +265,16 @@ status_type_t sys_debug(const char *s)
     return E_OK;
 }
 
-status_type_t activate(task_t *tp) 
+status_type_t init_task(task_t *tp, task_state_t state)
 {
     status_type_t status = E_OK;
     uint32_t *sp;
     const task_rom_t *task_romp = task_rom + (tp - task);
 
-    /* CRITICAL SECTION: BEGIN */
-    disable_interrupt();
-
     if (tp->state & (TASK_STATE_RUNNING | TASK_STATE_READY | TASK_STATE_WAITING))
         status = E_OS_LIMIT;
     else {
-        tp->state = TASK_STATE_READY;
+        tp->state = state;
         tp->pri   = task_romp->pri;
 
         sp = task_romp->stack_bottom - 16;
@@ -289,9 +286,6 @@ status_type_t activate(task_t *tp)
         sp[14] = (uint32_t)task_romp->entry;
         tp->context = (context_t)sp;
     }
-
-    enable_interrupt();
-    /* CRITICAL SECTION: END */
 
     return status;
 }
@@ -305,7 +299,13 @@ status_type_t sys_activate_task(task_type_t task_id)
 
     tp = &task[task_id];
 
-    status = activate(tp);
+    /* CRITICAL SECTION: BEGIN */
+    disable_interrupt();
+
+    status = init_task(tp, TASK_STATE_READY);
+
+    enable_interrupt();
+    /* CRITICAL SECTION: END */
 
     if (status != E_OK)
         return status;
@@ -369,7 +369,7 @@ status_type_t sys_chain_task(task_type_t task_id)
         status = E_OS_LIMIT;
     else {
         terminate(taskp);
-        activate(tp);
+        init_task(tp, TASK_STATE_READY);
     }
 
     enable_interrupt();
@@ -742,33 +742,25 @@ status_type_t sys_cancel_alarm(uint32_t alarm_id)
 
 void default_task(int ex)
 {
-    puts("[default_task]");
-    set_rel_alarm(0, 30, 0);
-    set_rel_alarm(1, 60, 0);
-    set_rel_alarm(2, 90, 0);
     while (1) ;
 }
 
 void initialize_object(void)
 {
     int i;
+    task_t *tp;
 
-    /* Set up default task. */
-    task[0].state       = TASK_STATE_RUNNING;
-    task[0].pri         = task_rom[0].pri;
-    task[0].context     = (uint32_t)(task_rom[0].stack_bottom - 16);
-    ((uint32_t *)task[0].context)[15] = 0x01000000;
-    ((uint32_t *)task[0].context)[14] = (uint32_t)default_task;
+    /* Initialize user tasks */
+    for (i = 0; i < NR_TASK; i++) {
+        tp = task + i;
+        init_task(tp, TASK_STATE_SUSPENDED);
+        if (task_rom[i].autostart) {
+            tp->state = TASK_STATE_READY;
+        }
+    }
 
     /* Set up PSP to default task. */
     set_psp((uint32_t *)task[0].context + 8);
-
-    /* Initialize user tasks */
-    for (i = 1; i < NR_TASK; i++)
-        if (task_rom[i].autostart)
-            task[i].state = TASK_STATE_READY;
-        else
-            task[i].state = TASK_STATE_SUSPENDED;
 
     /* Wait queue */
     for (i = 0; i < NR_RES; i++) {
@@ -791,7 +783,7 @@ void initialize_object(void)
         alarm[i].counterp = &counter[0];
     }
 
-    taskp      = &task[0];
+    taskp = &task[0];
     schedule();
 }
 
