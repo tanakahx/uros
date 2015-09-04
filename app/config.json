@@ -1,21 +1,16 @@
 {
     "tasks" : [
-        {"name" : "main_task", "pri" : 1, "stack_size" : 256, "autostart" : false},
-        {"name" : "sub_task0", "pri" : 0, "stack_size" : 256, "autostart" : false},
-        {"name" : "sub_task1", "pri" : 2, "stack_size" : 256, "autostart" : false},
-        {"name" : "sub_task2", "pri" : 2, "stack_size" : 256, "autostart" : false},
-        {"name" : "sub_task3", "pri" : 1, "stack_size" : 256, "autostart" : false}
+        {"name" : "main_task", "pri" : 2, "stack_size" : 256, "autostart" : true},
+        {"name" : "sub_task1", "pri" : 0, "stack_size" : 256, "autostart" : false},
+        {"name" : "sub_task2", "pri" : 1, "stack_size" : 256, "autostart" : false}
     ],
 
     "resources" : [
-        {"name" : "resource1", "pri" : 0}
+        {"name" : "resource1", "pri" : 1}
     ],
 
     "events" : [
-        {"name" : "event1"},
-        {"name" : "event2"},
-        {"name" : "event3"},
-        {"name" : "event4"}
+        {"name" : "event1"}
     ], 
 
     "alarms" : [
