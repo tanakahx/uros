@@ -1,5 +1,6 @@
 #include "uros.h"
 #include "uart.h"
+#include "lib.h"
 #include "config.h"
 
 void sub_task1(int ex)
@@ -52,7 +53,7 @@ void main_task(int ex)
     set_event(SUB_TASK1, EVENT1);
 
     while (1) {
-        if (i++ == 0x80000) {
+        if (i++ == 0x800000) {
             get_resource(RESOURCE1);
             puts("[main_task]");
             release_resource(RESOURCE1);

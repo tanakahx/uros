@@ -1,16 +1,11 @@
 #include "uros.h"
 #include "system.h"
 #include "uart.h"
+#include "uart_hal.h"
 #include "lib.h"
 #include "config.h"
 
 #define NR_COUNTER 1
-
-/* Wait queue */
-typedef struct wque {
-    struct wque *next;
-    struct wque *prev;
-} wque_t;
 
 /* Resource Type */
 typedef struct {
@@ -790,7 +785,7 @@ void initialize_object(void)
 __attribute__((naked))
 void start_os(void)
 {
-    printf("Start OS (build target: %s)\n", BUILD_TARGET_ARCH); 
+    /* printf("Start OS (build target: %s)\n", BUILD_TARGET_ARCH);  */
 
     initialize_object();
 
@@ -805,5 +800,19 @@ void start_os(void)
 
 void uros_main(void)
 {
+    /* Let's get started. */
+    uart_hal_send(0, 'b');
+    uart_hal_send(0, 'o');
+    uart_hal_send(0, 'o');
+    uart_hal_send(0, 't');
+    uart_hal_send(0, 'i');
+    uart_hal_send(0, 'n');
+    uart_hal_send(0, 'g');
+    uart_hal_send(0, '.');
+    uart_hal_send(0, '.');
+    uart_hal_send(0, '.');
+    uart_hal_send(0, '\r');
+    uart_hal_send(0, '\n');
+    
     main();
 }

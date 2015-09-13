@@ -12,6 +12,7 @@ void SVC_Handler() __attribute__((weak));
 void DebugMon_Handler() __attribute__((weak));
 void PendSV_Handler() __attribute__((weak));
 void SysTick_Handler() __attribute__((weak));
+void Uart0_Handler() __attribute__((weak));
   
 void (* const vector_table[])()  = {
     (void (*)())&stack_bottom,
@@ -30,4 +31,10 @@ void (* const vector_table[])()  = {
     NULL,
     PendSV_Handler,
     SysTick_Handler,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    Uart0_Handler,
 };

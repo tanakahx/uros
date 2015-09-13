@@ -1,4 +1,6 @@
+#include "uart_hal.h"
+
 void system_init(void)
 {
-    /* do nothing */
+    uart_hal_init(0);
 }

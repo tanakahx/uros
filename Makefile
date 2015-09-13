@@ -6,7 +6,7 @@ CC := arm-linux-gnueabi-gcc
 LD := arm-linux-gnueabi-ld
 OBJCOPY := arm-linux-gnueabi-objcopy
 
-CFLAGS = -Wall -fno-builtin -Isrc -Iapp
+CFLAGS = -Wall -fno-builtin -Isrc -Iapp -O2
 LDFLAGS =
 OBJS := src/kernel.o src/lib.o src/uart.o app/config.o app/main.o
 
