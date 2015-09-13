@@ -15,6 +15,14 @@ typedef unsigned int event_mask_type_t;
 typedef unsigned long tick_t;
 #define TICK_MAX ((tick_t)-1)
 
+typedef unsigned int dev_type_t;
+
+/* Wait queue */
+typedef struct wque {
+    struct wque *next;
+    struct wque *prev;
+} wque_t;
+
 typedef enum {
     E_OK          = 0,
     E_OS_ACCESS   = 1,

@@ -41,6 +41,16 @@ void pend_sv(void)
     ICSR |= (1<<28);
 }
 
+void nvic_enable_irq(uint32_t irq)
+{
+    NVIC_ISER[irq >> 5] = 0x1 << (irq & 0x1F);
+}
+
+void nvic_set_irq_pri(uint32_t irq, uint32_t pri)
+{
+    NVIC_IPR[irq] = pri;
+}
+
 void memory_init()
 {
     extern unsigned int rodata_end;
@@ -58,11 +68,11 @@ void memory_init()
 
 void Reset_Handler(void)
 {
-    /* System dependent initialization */
-    system_init();
-
     /* Disable all interrupts until initialization is completed. */
     disable_interrupt();
+
+    /* System dependent initialization */
+    system_init();
 
     memory_init();
 
@@ -75,26 +85,10 @@ void Reset_Handler(void)
     /* Set system exception priority */
     SHPR1 = 0x00000000;
     SHPR2 = 0x00000000;
-    SHPR3 = 0x01010000;
-
-    /* TODO: Enable external IRQ */
-
+    SHPR3 = 0x02020000;
 
     /* Enable double word stack alignment */
     NVIC_CCR |= 0x200;
 
-    /* Let's get started. */
-    uart_hal_send('b');
-    uart_hal_send('o');
-    uart_hal_send('o');
-    uart_hal_send('t');
-    uart_hal_send('i');
-    uart_hal_send('n');
-    uart_hal_send('g');
-    uart_hal_send('.');
-    uart_hal_send('.');
-    uart_hal_send('.');
-    uart_hal_send('\r');
-    uart_hal_send('\n');
     uros_main();
 }

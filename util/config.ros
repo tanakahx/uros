@@ -97,7 +97,11 @@ exec ros -Q -- $0 "$@"
   (emit-define objects)
   (mapc #'(lambda (task) (format t "void ~a(int ex);~%" (getvalue task "name"))) 
         (getvalue objects "tasks"))
-  (format t "~2&void ~a(void);~2%" "main_task_callback")
+  (mapc #'(lambda (alarm) (format t "void ~a(void);~%" (getvalue (getvalue alarm "action") "callback")))
+        (remove-if-not #'(lambda (obj)
+                           (string= "ALARMCALLBACK"
+                                    (getvalue (getvalue obj "action") "type")))
+                       (getvalue objects "alarms")))
   (format t "extern const task_rom_t task_rom[];~%")
   (format t "extern const res_rom_t res_rom[];~%")
   (format t "extern const alarm_action_rom_t alarm_action_rom[];~%")

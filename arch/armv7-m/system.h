@@ -18,6 +18,8 @@
 #define VTOR       (*(volatile uint32_t *)0xE000ED08)
 #define AIRCR      (*(volatile uint32_t *)0xE000ED0C)
 #define NVIC_CCR   (*(volatile uint32_t *)0xE000ED14)
+#define NVIC_ISER  ( (volatile uint32_t *)0xE000E100)
+#define NVIC_IPR   ( (volatile uint32_t *)0xE000E400)
 
 #define SHPR1      (*(volatile uint32_t *)0xE000ED18)
 #define SHPR2      (*(volatile uint32_t *)0xE000ED1C)
@@ -33,5 +35,7 @@ void enable_interrupt(void);
 void set_basepri(int val);
 void set_psp(uint32_t *val);
 void pend_sv(void);
+void nvic_enable_irq(uint32_t irq);
+void nvic_set_irq_pri(uint32_t irq, uint32_t pri);
 
 #endif
