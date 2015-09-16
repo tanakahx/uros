@@ -10,12 +10,15 @@
     ],
 
     "events" : [
-        {"name" : "event1"}
+        {"name" : "event1"},
+        {"name" : "ev_uart_complete"},
+        {"name" : "ev_uart_timeout"}
     ], 
 
     "alarms" : [
         {"name" : "alarm1", "action" : {"type" : "ACTIVATETASK", "task" : "main_task"}},
         {"name" : "alarm2", "action" : {"type" : "SETEVENT", "task" : "main_task", "event" : "event1"}},
-        {"name" : "alarm3", "action" : {"type" : "ALARMCALLBACK", "callback" : "main_task_callback"}}
+        {"name" : "alarm3", "action" : {"type" : "ALARMCALLBACK", "callback" : "main_task_callback"}},
+        {"name" : "uart_alarm", "action" : {"type" : "ALARMCALLBACK", "callback" : "uart_alarm_callback"}}
     ]
 }
