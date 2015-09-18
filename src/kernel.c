@@ -281,7 +281,6 @@ status_type_t init_task(task_t *tp, task_state_t state)
         sp[14] = (uint32_t)task_romp->entry;
         tp->context = (context_t)sp;
     }
-
     return status;
 }
 
@@ -800,19 +799,5 @@ void start_os(void)
 
 void uros_main(void)
 {
-    /* Let's get started. */
-    uart_hal_send(0, 'b');
-    uart_hal_send(0, 'o');
-    uart_hal_send(0, 'o');
-    uart_hal_send(0, 't');
-    uart_hal_send(0, 'i');
-    uart_hal_send(0, 'n');
-    uart_hal_send(0, 'g');
-    uart_hal_send(0, '.');
-    uart_hal_send(0, '.');
-    uart_hal_send(0, '.');
-    uart_hal_send(0, '\r');
-    uart_hal_send(0, '\n');
-    
     main();
 }

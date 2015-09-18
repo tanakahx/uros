@@ -64,12 +64,4 @@ void system_init(void)
     GPIOD->MODER = 0x55550000;
     GPIOD->ODR   = 0x0000F000;
 
-    GPIOD->MODER |= GPIO_MODER_MODER5_1 | GPIO_MODER_MODER6_1;
-    GPIOD->AFR[0] = (0x7 << (5*4)) | (0x7 << (6*4));
-
-    USART2->BRR = 0x16D; /* PCLK = 84MHz, Baud rate = 115200 bps, OVER8 = 0, hence BRR = 22.8125 */
-    USART2->CR1 |= USART_CR1_UE |    /* USART enable */
-                   USART_CR1_TE |    /* Transmitter enable */
-                   USART_CR1_RE |    /* Receiver enable */
-                   USART_CR1_RXNEIE; /* RXNE interrupt enable */
 }

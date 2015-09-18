@@ -132,26 +132,39 @@ size_t strlen(const char *s)
 void uart_put_str(char *s, size_t size)
 {
     uart_info_t info;
-    info.devno = 0;
+    uint32_t devno;
+
+#ifdef LM3S6965EVB
+    devno = 0;
+#elif  STM32F407xx
+    devno = 1;
+#endif
+    info.devno = devno;
     info.baud_rate = 115200;
 
     uart_open(&info);
-    uart_write(0, s, size);
-    uart_close(&info);
+    uart_write(devno, s, size);
+    /* uart_close(&info); */
 }
 
 int uart_get_str(char *s, size_t size)
 {
     uart_info_t info;
+    uint32_t devno;
     int ret;
 
-    info.devno = 0;
+#ifdef LM3S6965EVB
+    devno = 0;
+#elif  STM32F407xx
+    devno = 1;
+#endif
+    info.devno = devno;
     info.baud_rate = 115200;
 
     uart_open(&info);
-    if ((ret = uart_tread(0, s, size, 25)) == -1)
+    if ((ret = uart_tread(devno, s, size, 40)) == -1)
         *s = '.';
-    uart_close(&info);
+    /* uart_close(&info); */
     return ret;
 }
 

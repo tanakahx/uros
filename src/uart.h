@@ -5,10 +5,8 @@
 #include "uros.h"
 
 typedef struct uart_que {
-    struct uart_que *send_next;
-    struct uart_que *send_prev;
-    struct uart_que *recv_next;
-    struct uart_que *recv_prev;
+    struct uart_que *next;
+    struct uart_que *prev;
     uint32_t devno;
     char *buf;
     size_t size;
