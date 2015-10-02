@@ -7,34 +7,33 @@
 
 status_type_t sys_set_event(task_type_t task_id, event_mask_type_t event);
 
-static uart_que_t req_que;
+static uart_que_t send_que;
+static uart_que_t recv_que;
 static bool_t uart_initialized[] = {FALSE, FALSE, FALSE};
 
 void uart_alarm_callback(void)
 {
-    uart_que_t *send_q = req_que.send_prev;
-    uart_que_t *recv_q = req_que.recv_prev;
+    uart_que_t *send_q = send_que.prev;
+    uart_que_t *recv_q = recv_que.prev;
 
-    while (send_q != &req_que) {
+    disable_interrupt();
+    while (send_q != &send_que) {
         if (send_q->timeout && (send_q->over-- == 0)) {
-            disable_interrupt();
-            send_q->send_next->send_prev = send_q->send_prev;
-            send_q->send_prev->send_next = send_q->send_next;
-            enable_interrupt();
+            send_q->next->prev = send_q->prev;
+            send_q->prev->next = send_q->next;
             sys_set_event(send_q->task_id, EV_UART_TIMEOUT);
         }
-        send_q = send_q->send_prev;
+        send_q = send_q->prev;
     }
-    while (recv_q != &req_que) {
+    while (recv_q != &recv_que) {
         if (recv_q->timeout && (recv_q->over-- == 0)) {
-            disable_interrupt();
-            recv_q->recv_next->recv_prev = recv_q->recv_prev;
-            recv_q->recv_prev->recv_next = recv_q->recv_next;
-            enable_interrupt();
+            recv_q->next->prev = recv_q->prev;
+            recv_q->prev->next = recv_q->next;
             sys_set_event(recv_q->task_id, EV_UART_TIMEOUT);
         }
-        recv_q = recv_q->recv_prev;
+        recv_q = recv_q->prev;
     }
+    enable_interrupt();
 }
 
 void uart_send_cbr(void)
@@ -43,11 +42,11 @@ void uart_send_cbr(void)
     bool_t wakeup = FALSE;
     
     disable_interrupt();
-    if (req_que.send_prev != &req_que) {
-        q = req_que.send_prev;
+    if (send_que.prev != &send_que) {
+        q = send_que.prev;
         if (--q->size == 0) {
-            q->send_next->send_prev = q->send_prev;
-            q->send_prev->send_next = q->send_next;
+            q->next->prev = q->prev;
+            q->prev->next = q->next;
             wakeup = TRUE;
         }
         else
@@ -65,12 +64,12 @@ void uart_recv_cbr(void)
     bool_t wakeup = FALSE;
 
     disable_interrupt();
-    if (req_que.recv_prev != &req_que) {
-        q = req_que.recv_prev;
+    if (recv_que.prev != &recv_que) {
+        q = recv_que.prev;
         uart_hal_recv(q->devno, q->buf++);
         if (--q->size == 0) {
-            q->recv_next->recv_prev = q->recv_prev;
-            q->recv_prev->recv_next = q->recv_next;
+            q->next->prev = q->prev;
+            q->prev->next = q->next;
             wakeup = TRUE;
         }
     }
@@ -95,10 +94,10 @@ int uart_open(uart_info_t *dev)
 
     disable_interrupt();
     if (uart_initialized[dev->devno] == FALSE) {
-        req_que.send_next = &req_que;
-        req_que.send_prev = &req_que;
-        req_que.recv_next = &req_que;
-        req_que.recv_prev = &req_que;
+        send_que.next = &send_que;
+        send_que.prev = &send_que;
+        recv_que.next = &recv_que;
+        recv_que.prev = &recv_que;
         uart_initialized[dev->devno] = TRUE;
     }
     enable_interrupt();
@@ -122,7 +121,7 @@ task_type_t task_id(void)
     return id;
 }
 
-void uart_write_request(uint32_t devno, char *buf, size_t size, uart_que_t *que)
+void uart_send_request(uint32_t devno, char *buf, size_t size, uart_que_t *que)
 {
     que->devno = devno;
     que->buf = buf;
@@ -131,10 +130,10 @@ void uart_write_request(uint32_t devno, char *buf, size_t size, uart_que_t *que)
 
     disable_interrupt();
     /* enqueue */
-    que->send_next = req_que.send_next;
-    que->send_prev = &req_que;
-    req_que.send_next->send_prev = que;
-    req_que.send_next = que;
+    que->next = send_que.next;
+    que->prev = &send_que;
+    send_que.next->prev = que;
+    send_que.next = que;
     uart_hal_send(devno, *buf);
     enable_interrupt();
 }
@@ -154,7 +153,7 @@ int uart_twrite(uint32_t devno, char *buf, size_t size, tick_t over)
     else
         que.timeout = FALSE;
     que.over = over;
-    uart_write_request(devno, buf, size, &que);
+    uart_send_request(devno, buf, size, &que);
 
     if (over > 0)
         wait_event(EV_UART_COMPLETE | EV_UART_TIMEOUT);
@@ -174,7 +173,7 @@ int uart_twrite(uint32_t devno, char *buf, size_t size, tick_t over)
     return size - que.size;
 }
 
-void uart_read_request(uint32_t devno, char *buf, size_t size, uart_que_t *que)
+void uart_recv_request(uint32_t devno, char *buf, size_t size, uart_que_t *que)
 {
     que->devno = devno;
     que->buf = buf;
@@ -183,10 +182,10 @@ void uart_read_request(uint32_t devno, char *buf, size_t size, uart_que_t *que)
 
     disable_interrupt();
     /* enqueue */
-    que->recv_next = req_que.recv_next;
-    que->recv_prev = &req_que;
-    req_que.recv_next->recv_prev = que;
-    req_que.recv_next = que;
+    que->next = recv_que.next;
+    que->prev = &recv_que;
+    recv_que.next->prev = que;
+    recv_que.next = que;
     enable_interrupt();
 }
 
@@ -205,7 +204,7 @@ int uart_tread(uint32_t devno, char *buf, size_t size, tick_t over)
     else
         que.timeout = FALSE;
     que.over = over;
-    uart_read_request(devno, buf, size, &que);
+    uart_recv_request(devno, buf, size, &que);
 
     if (over > 0)
         wait_event(EV_UART_COMPLETE | EV_UART_TIMEOUT);

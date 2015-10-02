@@ -11,8 +11,6 @@
 #define UART1 ((uart_t *)UART1_BASE)
 #define UART2 ((uart_t *)UART2_BASE)
 
-#define NR_UART 3
-
 typedef struct uart {
     uint32_t DR;
     uint32_t RSR;
